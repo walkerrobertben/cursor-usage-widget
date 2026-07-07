@@ -37,14 +37,19 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         guard let button = statusItem.button else { return }
 
         if !displayState.isAuthenticated {
+            statusItem.isVisible = true
             button.attributedTitle = NSAttributedString(string: "⚠ Cursor")
             return
         }
 
         guard let summary = displayState.summary else {
-            button.attributedTitle = NSAttributedString(string: "…")
+            // Stay invisible until the first successful fetch.
+            button.attributedTitle = NSAttributedString(string: "")
+            statusItem.isVisible = false
             return
         }
+
+        statusItem.isVisible = true
 
         let apiPercent = summary.apiPercentUsed ?? 0
         let autoPercent = summary.autoPercentUsed ?? 0
@@ -52,18 +57,18 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         let title = NSMutableAttributedString()
         title.append(
-            formattedPercentSegment(
-                percent: apiPercent,
-                showUpArrow: displayState.apiPercentIncreased,
-                warningThresholds: true
+            formattedLabeledPercentSegment(
+                label: "Cursor",
+                percent: autoPercent,
+                showUpArrow: displayState.autoPercentIncreased
             )
         )
         title.append(NSAttributedString(string: " · ", attributes: baseAttributes()))
         title.append(
-            formattedPercentSegment(
-                percent: autoPercent,
-                showUpArrow: displayState.autoPercentIncreased,
-                warningThresholds: false
+            formattedLabeledPercentSegment(
+                label: "API",
+                percent: apiPercent,
+                showUpArrow: displayState.apiPercentIncreased
             )
         )
 
@@ -72,7 +77,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             title.append(
                 NSAttributedString(
                     string: UsageFormatting.dollarsFromCentsInt(onDemandUsed),
-                    attributes: baseAttributes(color: .systemRed)
+                    attributes: baseAttributes()
                 )
             )
         }
@@ -80,23 +85,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         button.attributedTitle = title
     }
 
-    private func formattedPercentSegment(
+    private func formattedLabeledPercentSegment(
+        label: String,
         percent: Double,
-        showUpArrow: Bool,
-        warningThresholds: Bool
+        showUpArrow: Bool
     ) -> NSAttributedString {
         let rounded = Int(percent.rounded())
-        var color: NSColor = .labelColor
-        if warningThresholds {
-            if percent >= 90 {
-                color = .systemRed
-            } else if percent >= 75 {
-                color = .systemOrange
-            }
-        }
-
-        let text = "\(rounded)%\(showUpArrow ? "↑" : "")"
-        return NSAttributedString(string: text, attributes: baseAttributes(color: color))
+        let text = "\(label): \(rounded)%\(showUpArrow ? "↑" : "")"
+        return NSAttributedString(string: text, attributes: baseAttributes())
     }
 
     private func baseAttributes(color: NSColor = .labelColor) -> [NSAttributedString.Key: Any] {
@@ -110,49 +106,56 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.removeAllItems()
 
         if !displayState.isAuthenticated {
-            let errorItem = NSMenuItem(
+            addInfoItem(
+                to: menu,
                 title: displayState.authErrorMessage ?? "Couldn't authenticate — is Cursor signed in?",
-                action: nil,
-                keyEquivalent: ""
+                style: .emphasis
             )
-            errorItem.isEnabled = false
-            menu.addItem(errorItem)
             addCommonActions(to: menu)
             return
         }
 
         guard let summary = displayState.summary else {
-            let loadingItem = NSMenuItem(title: "Loading…", action: nil, keyEquivalent: "")
-            loadingItem.isEnabled = false
-            menu.addItem(loadingItem)
+            addInfoItem(to: menu, title: "Loading…", style: .secondary)
             addCommonActions(to: menu)
             return
         }
 
         let membership = summary.membershipType ?? "unknown"
-        let header = NSMenuItem(title: "Cursor Usage — \(membership)", action: nil, keyEquivalent: "")
-        header.isEnabled = false
-        menu.addItem(header)
+        addInfoItem(to: menu, title: "Cursor Usage — \(membership)", style: .header)
 
         if let start = summary.billingCycleStartDate, let end = summary.billingCycleEndDate {
-            let cycleItem = NSMenuItem(
+            addInfoItem(
+                to: menu,
                 title: "Cycle: \(UsageFormatting.formatCycleDate(start)) – \(UsageFormatting.formatCycleDate(end))",
-                action: nil,
-                keyEquivalent: ""
+                style: .secondary
             )
-            cycleItem.isEnabled = false
-            menu.addItem(cycleItem)
         }
 
-        if let totalPercent = summary.totalPercentUsed {
-            let totalItem = NSMenuItem(
-                title: String(format: "Total included: %.1f%%", totalPercent),
-                action: nil,
-                keyEquivalent: ""
-            )
-            totalItem.isEnabled = false
-            menu.addItem(totalItem)
-        }
+        let aggregations = displayState.aggregations?.aggregations
+        let cursorUsedCents = centsUsed(in: aggregations, tier: 2)
+        let apiUsedCents = centsUsed(in: aggregations, tier: 1)
+        let totalUsedCents = cursorUsedCents + apiUsedCents
+
+        addInfoItem(
+            to: menu,
+            title: UsageFormatting.poolSectionTitle(
+                prefix: "Total",
+                usedCents: totalUsedCents,
+                percentUsed: summary.totalPercentUsed
+            ),
+            style: .body
+        )
+
+        menu.addItem(.separator())
+
+        addModelSection(
+            to: menu,
+            titlePrefix: "Cursor",
+            percent: summary.autoPercentUsed,
+            usedCents: cursorUsedCents,
+            tier: 2
+        )
 
         menu.addItem(.separator())
 
@@ -160,30 +163,21 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             to: menu,
             titlePrefix: "API",
             percent: summary.apiPercentUsed,
+            usedCents: apiUsedCents,
             tier: 1
         )
 
-        menu.addItem(.separator())
-
-        addModelSection(
-            to: menu,
-            titlePrefix: "Auto + Composer",
-            percent: summary.autoPercentUsed,
-            tier: 2
-        )
 
         menu.addItem(.separator())
         addOnDemandSection(to: menu, summary: summary)
         menu.addItem(.separator())
 
         if let lastUpdated = displayState.lastUpdated {
-            let updatedItem = NSMenuItem(
-                title: "Last updated: \(UsageFormatting.formatTime(lastUpdated))",
-                action: nil,
-                keyEquivalent: ""
+            addInfoItem(
+                to: menu,
+                title: "Refreshes every 30s · Last updated: \(UsageFormatting.formatTime(lastUpdated))",
+                style: .secondary
             )
-            updatedItem.isEnabled = false
-            menu.addItem(updatedItem)
         }
 
         addCommonActions(to: menu)
@@ -193,32 +187,34 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         to menu: NSMenu,
         titlePrefix: String,
         percent: Double?,
+        usedCents: Double,
         tier: Int
     ) {
-        let sectionTitle = String(format: "%@ — %.1f%%", titlePrefix, percent ?? 0)
-        let sectionItem = NSMenuItem(title: sectionTitle, action: nil, keyEquivalent: "")
-        sectionItem.isEnabled = false
-        menu.addItem(sectionItem)
+        addInfoItem(
+            to: menu,
+            title: UsageFormatting.poolSectionTitle(
+                prefix: titlePrefix,
+                usedCents: usedCents,
+                percentUsed: percent
+            ),
+            style: .section,
+            indentationLevel: 0
+        )
 
         guard let aggregations = displayState.aggregations?.aggregations else {
-            let loadingItem = NSMenuItem(title: "Loading breakdown…", action: nil, keyEquivalent: "")
-            loadingItem.isEnabled = false
-            loadingItem.indentationLevel = 1
-            menu.addItem(loadingItem)
+            addInfoItem(to: menu, title: "Loading breakdown…", style: .secondary, indentationLevel: 1)
             return
         }
 
         let models = aggregations
             .filter { $0.tier == tier }
+            .filter { ($0.totalCents ?? 0) > 0 || $0.totalTokens > 0 }
             .sorted {
                 ($0.totalCents ?? 0) > ($1.totalCents ?? 0)
             }
 
         if models.isEmpty {
-            let emptyItem = NSMenuItem(title: "No usage this cycle", action: nil, keyEquivalent: "")
-            emptyItem.isEnabled = false
-            emptyItem.indentationLevel = 1
-            menu.addItem(emptyItem)
+            addInfoItem(to: menu, title: "No usage this cycle", style: .secondary, indentationLevel: 1)
             return
         }
 
@@ -226,15 +222,23 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             let intent = model.modelIntent ?? "unknown"
             let tokens = UsageFormatting.compactTokenCount(model.totalTokens)
             let dollars = UsageFormatting.dollarsFromCents(model.totalCents)
-            let row = NSMenuItem(
+            addInfoItem(
+                to: menu,
                 title: "\(intent)    \(tokens) tok · \(dollars)",
-                action: nil,
-                keyEquivalent: ""
+                style: .body,
+                indentationLevel: 1
             )
-            row.isEnabled = false
-            row.indentationLevel = 1
-            menu.addItem(row)
         }
+    }
+
+    private func centsUsed(
+        in aggregations: [AggregatedUsageResponse.Aggregation]?,
+        tier: Int
+    ) -> Double {
+        guard let aggregations else { return 0 }
+        return aggregations
+            .filter { $0.tier == tier }
+            .reduce(0) { $0 + ($1.totalCents ?? 0) }
     }
 
     private func addOnDemandSection(to menu: NSMenu, summary: UsageSummaryResponse) {
@@ -243,13 +247,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let limit = plan?.limit ?? 0
         let bonus = plan?.breakdown?.bonus ?? 0
 
-        let includedItem = NSMenuItem(
+        addInfoItem(
+            to: menu,
             title: "Included plan: \(formatInteger(used)) / \(formatInteger(limit)) used (+\(formatInteger(bonus)) bonus)",
-            action: nil,
-            keyEquivalent: ""
+            style: .body
         )
-        includedItem.isEnabled = false
-        menu.addItem(includedItem)
 
         let onDemandUsed = summary.individualUsage?.onDemand?.used ?? 0
         let teamLimit = summary.teamUsage?.onDemand?.limit
@@ -258,15 +260,72 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             onDemandTitle += " of \(UsageFormatting.dollarsFromCentsInt(teamLimit)) team budget"
         }
 
-        let onDemandItem = NSMenuItem(title: onDemandTitle, action: nil, keyEquivalent: "")
-        onDemandItem.isEnabled = false
-        if onDemandUsed > 0 {
-            onDemandItem.attributedTitle = NSAttributedString(
-                string: onDemandTitle,
-                attributes: [.foregroundColor: NSColor.systemRed]
-            )
+        addInfoItem(
+            to: menu,
+            title: onDemandTitle,
+            style: onDemandUsed > 0 ? .alert : .body
+        )
+    }
+
+    private enum InfoItemStyle {
+        case header
+        case section
+        case body
+        case secondary
+        case emphasis
+        case alert
+    }
+
+    private func addInfoItem(
+        to menu: NSMenu,
+        title: String,
+        style: InfoItemStyle,
+        indentationLevel: Int = 0
+    ) {
+        let item = NSMenuItem(title: "", action: #selector(ignoreMenuSelection), keyEquivalent: "")
+        item.attributedTitle = NSAttributedString(
+            string: title,
+            attributes: infoItemAttributes(for: style)
+        )
+        item.target = self
+        item.isEnabled = true
+        item.indentationLevel = indentationLevel
+        menu.addItem(item)
+    }
+
+    private func infoItemAttributes(for style: InfoItemStyle) -> [NSAttributedString.Key: Any] {
+        switch style {
+        case .header:
+            return [
+                .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+                .foregroundColor: NSColor.labelColor,
+            ]
+        case .section:
+            return [
+                .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+                .foregroundColor: NSColor.labelColor,
+            ]
+        case .body:
+            return [
+                .font: NSFont.systemFont(ofSize: 13, weight: .regular),
+                .foregroundColor: NSColor.labelColor,
+            ]
+        case .secondary:
+            return [
+                .font: NSFont.systemFont(ofSize: 12, weight: .regular),
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ]
+        case .emphasis:
+            return [
+                .font: NSFont.systemFont(ofSize: 13, weight: .medium),
+                .foregroundColor: NSColor.systemOrange,
+            ]
+        case .alert:
+            return [
+                .font: NSFont.systemFont(ofSize: 13, weight: .medium),
+                .foregroundColor: NSColor.systemRed,
+            ]
         }
-        menu.addItem(onDemandItem)
     }
 
     private func addCommonActions(to menu: NSMenu) {
@@ -288,6 +347,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         formatter.numberStyle = .decimal
         return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
     }
+
+    @objc private func ignoreMenuSelection() {}
 
     @objc private func refreshNow() {
         onRefreshRequested?()
