@@ -53,7 +53,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         let apiPercent = summary.apiPercentUsed ?? 0
         let autoPercent = summary.autoPercentUsed ?? 0
-        let onDemandUsed = summary.individualUsage?.onDemand?.used ?? 0
+        let individualOnDemand = summary.individualUsage?.onDemand?.used ?? 0
+        let teamOnDemand = summary.teamUsage?.onDemand?.used
+        // Prefer team total in the menubar when a team budget exists.
+        let onDemandMenubarCents = teamOnDemand ?? individualOnDemand
 
         let title = NSMutableAttributedString()
         title.append(
@@ -72,11 +75,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             )
         )
 
-        if onDemandUsed > 0 {
+        if onDemandMenubarCents > 0 {
             title.append(NSAttributedString(string: " · ", attributes: baseAttributes()))
             title.append(
                 NSAttributedString(
-                    string: UsageFormatting.dollarsFromCentsInt(onDemandUsed),
+                    string: UsageFormatting.dollarsFromCentsInt(onDemandMenubarCents),
                     attributes: baseAttributes()
                 )
             )
@@ -242,29 +245,40 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func addOnDemandSection(to menu: NSMenu, summary: UsageSummaryResponse) {
-        let plan = summary.individualUsage?.plan
-        let used = plan?.used ?? 0
-        let limit = plan?.limit ?? 0
-        let bonus = plan?.breakdown?.bonus ?? 0
-
-        addInfoItem(
-            to: menu,
-            title: "Included plan: \(formatInteger(used)) / \(formatInteger(limit)) used (+\(formatInteger(bonus)) bonus)",
-            style: .body
-        )
-
         let onDemandUsed = summary.individualUsage?.onDemand?.used ?? 0
+        let teamUsed = summary.teamUsage?.onDemand?.used
         let teamLimit = summary.teamUsage?.onDemand?.limit
-        var onDemandTitle = "On-demand: \(UsageFormatting.dollarsFromCentsInt(onDemandUsed))"
-        if let teamLimit {
-            onDemandTitle += " of \(UsageFormatting.dollarsFromCentsInt(teamLimit)) team budget"
-        }
+        let breakdown = UsageFormatting.OnDemandBreakdown(
+            individualUsedCents: onDemandUsed,
+            teamUsedCents: teamUsed,
+            teamLimitCents: teamLimit
+        )
+        let highlightOnDemand = onDemandUsed > 0 || (teamUsed ?? 0) > 0
+        let valueStyle: InfoItemStyle = highlightOnDemand ? .alert : .body
 
         addInfoItem(
             to: menu,
-            title: onDemandTitle,
-            style: onDemandUsed > 0 ? .alert : .body
+            title: breakdown.headerLine,
+            style: highlightOnDemand ? .alert : .section
         )
+
+        // Always nest the split when a team budget exists, even if you are at $0.
+        if breakdown.hasTeamBudget {
+            addInfoItem(
+                to: menu,
+                title: breakdown.youLine,
+                style: valueStyle,
+                indentationLevel: 1
+            )
+            if let everyoneElseLine = breakdown.everyoneElseLine {
+                addInfoItem(
+                    to: menu,
+                    title: everyoneElseLine,
+                    style: valueStyle,
+                    indentationLevel: 1
+                )
+            }
+        }
     }
 
     private enum InfoItemStyle {
@@ -340,12 +354,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let quitItem = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
-    }
-
-    private func formatInteger(_ value: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
     }
 
     @objc private func ignoreMenuSelection() {}

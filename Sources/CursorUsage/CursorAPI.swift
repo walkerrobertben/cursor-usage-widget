@@ -265,6 +265,49 @@ enum UsageFormatting {
         return String(format: "$%.2f", Double(cents) / 100.0)
     }
 
+    struct OnDemandBreakdown {
+        let individualUsedCents: Int
+        let teamUsedCents: Int?
+        let teamLimitCents: Int?
+
+        /// Team budget is present if Cursor returned either used or limit.
+        var hasTeamBudget: Bool { teamUsedCents != nil || teamLimitCents != nil }
+
+        var headerLine: String {
+            if hasTeamBudget {
+                let total = UsageFormatting.dollarsFromCentsInt(teamUsedCents ?? 0)
+                if let teamLimitCents {
+                    return "On-demand usage: \(total) / \(UsageFormatting.dollarsFromCentsInt(teamLimitCents)) limit"
+                }
+                return "On-demand usage: \(total)"
+            }
+            return "On-demand usage: \(UsageFormatting.dollarsFromCentsInt(individualUsedCents))"
+        }
+
+        var youLine: String {
+            "\(UsageFormatting.dollarsFromCentsInt(individualUsedCents)) (you)"
+        }
+
+        var everyoneElseLine: String? {
+            guard hasTeamBudget else { return nil }
+            let teamTotal = teamUsedCents ?? 0
+            let others = max(0, teamTotal - individualUsedCents)
+            return "\(UsageFormatting.dollarsFromCentsInt(others)) (everyone else)"
+        }
+
+        /// Plain multi-line summary for `--check` / logs.
+        var plainText: String {
+            guard hasTeamBudget else {
+                return headerLine
+            }
+            var lines = [headerLine, "  \(youLine)"]
+            if let everyoneElseLine {
+                lines.append("  \(everyoneElseLine)")
+            }
+            return lines.joined(separator: "\n")
+        }
+    }
+
     /// Extrapolate total pool size from spend so far and percent used.
     /// Returns nil when the inputs aren't enough to estimate safely (cycle
     /// reset, no spend yet, tiny %, or non-finite API values).

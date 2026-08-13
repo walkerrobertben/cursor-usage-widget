@@ -163,7 +163,16 @@ enum CheckMode {
             print(String(format: "API percent: %.2f", summary.apiPercentUsed ?? 0))
             print(String(format: "Auto percent: %.2f", summary.autoPercentUsed ?? 0))
             print(String(format: "Total percent: %.2f", summary.totalPercentUsed ?? 0))
-            print("On-demand used (cents): \(summary.individualUsage?.onDemand?.used ?? 0)")
+            let onDemandUsed = summary.individualUsage?.onDemand?.used ?? 0
+            let teamUsed = summary.teamUsage?.onDemand?.used
+            let teamLimit = summary.teamUsage?.onDemand?.limit
+            print(
+                UsageFormatting.OnDemandBreakdown(
+                    individualUsedCents: onDemandUsed,
+                    teamUsedCents: teamUsed,
+                    teamLimitCents: teamLimit
+                ).plainText
+            )
 
             guard let startDate = summary.billingCycleStartDate,
                   let endDate = summary.billingCycleEndDate
