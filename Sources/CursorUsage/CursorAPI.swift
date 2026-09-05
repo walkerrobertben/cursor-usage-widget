@@ -71,6 +71,71 @@ struct AggregatedUsageResponse: Decodable {
     let totalCostCents: Double?
 }
 
+struct SandUsageResponse: Decodable {
+    let currentPeriodStart: String?
+    let nextResetTimestampUtc: String?
+    let usagePercent: Double?
+    let hasAvailableUsage: Bool?
+    let hasNonZeroIncludedLimit: Bool?
+    let grokPlanLabel: String?
+
+    var periodStartDate: Date? {
+        ISODates.parse(currentPeriodStart)
+    }
+
+    var resetDate: Date? {
+        ISODates.parse(nextResetTimestampUtc)
+    }
+
+    var showsMenubarPercent: Bool {
+        hasNonZeroIncludedLimit == true && usagePercent != nil
+    }
+}
+
+struct PlanInfoResponse: Decodable {
+    struct PlanInfo: Decodable {
+        let planName: String?
+        let includedAmountCents: Int?
+        let price: String?
+        let billingCycleEnd: String?
+        let planOwner: String?
+    }
+
+    let planInfo: PlanInfo?
+}
+
+struct HardLimitResponse: Decodable {
+    let noUsageBasedAllowed: Bool?
+    let hardLimit: Int?
+    let hardLimitPerUser: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case noUsageBasedAllowed
+        case hardLimit
+        case hardLimitPerUser
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        noUsageBasedAllowed = try container.decodeIfPresent(Bool.self, forKey: .noUsageBasedAllowed)
+        hardLimit = Self.decodeInt(from: container, forKey: .hardLimit)
+        hardLimitPerUser = Self.decodeInt(from: container, forKey: .hardLimitPerUser)
+    }
+
+    private static func decodeInt(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) -> Int? {
+        if let value = try? container.decode(Int.self, forKey: key) {
+            return value
+        }
+        if let value = try? container.decode(Double.self, forKey: key) {
+            return Int(value.rounded())
+        }
+        return nil
+    }
+}
+
 enum CursorAPIError: LocalizedError {
     case httpError(statusCode: Int, body: String)
     case decodingError(Error)
@@ -124,6 +189,36 @@ final class CursorAPI {
             urlString: "https://cursor.com/api/dashboard/get-aggregated-usage-events",
             method: "POST",
             body: bodyData,
+            includeOrigin: true,
+            retryOnAuthFailure: true
+        )
+    }
+
+    func fetchSandUsage() async throws -> SandUsageResponse {
+        try await performRequest(
+            urlString: "https://cursor.com/api/dashboard/get-sand-usage-status",
+            method: "POST",
+            body: Data("{}".utf8),
+            includeOrigin: true,
+            retryOnAuthFailure: true
+        )
+    }
+
+    func fetchPlanInfo() async throws -> PlanInfoResponse {
+        try await performRequest(
+            urlString: "https://cursor.com/api/dashboard/get-plan-info",
+            method: "POST",
+            body: Data("{}".utf8),
+            includeOrigin: true,
+            retryOnAuthFailure: true
+        )
+    }
+
+    func fetchHardLimit() async throws -> HardLimitResponse {
+        try await performRequest(
+            urlString: "https://cursor.com/api/dashboard/get-hard-limit",
+            method: "POST",
+            body: Data("{}".utf8),
             includeOrigin: true,
             retryOnAuthFailure: true
         )
@@ -222,24 +317,11 @@ extension UsageSummaryResponse {
     }
 
     var billingCycleStartDate: Date? {
-        parseISO8601Date(billingCycleStart)
+        ISODates.parse(billingCycleStart)
     }
 
     var billingCycleEndDate: Date? {
-        parseISO8601Date(billingCycleEnd)
-    }
-
-    private func parseISO8601Date(_ value: String?) -> Date? {
-        guard let value else { return nil }
-
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: value) {
-            return date
-        }
-
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: value)
+        ISODates.parse(billingCycleEnd)
     }
 }
 
@@ -265,23 +347,88 @@ enum UsageFormatting {
         return String(format: "$%.2f", Double(cents) / 100.0)
     }
 
-    struct OnDemandBreakdown {
+    struct BillingSnapshot {
+        enum OnDemandMode {
+            case disabled
+            case limited(limitCents: Int)
+            case unlimited
+        }
+
+        let planName: String?
+        let planPriceCents: Int?
         let individualUsedCents: Int
+        let individualLimitCents: Int?
         let teamUsedCents: Int?
         let teamLimitCents: Int?
+        let hardLimit: HardLimitResponse?
+        let onDemandEnabled: Bool?
 
-        /// Team budget is present if Cursor returned either used or limit.
         var hasTeamBudget: Bool { teamUsedCents != nil || teamLimitCents != nil }
 
-        var headerLine: String {
+        var displayedUsedCents: Int {
             if hasTeamBudget {
-                let total = UsageFormatting.dollarsFromCentsInt(teamUsedCents ?? 0)
-                if let teamLimitCents {
-                    return "On-demand usage: \(total) / \(UsageFormatting.dollarsFromCentsInt(teamLimitCents)) limit"
-                }
-                return "On-demand usage: \(total)"
+                return teamUsedCents ?? 0
             }
-            return "On-demand usage: \(UsageFormatting.dollarsFromCentsInt(individualUsedCents))"
+            return individualUsedCents
+        }
+
+        var mode: OnDemandMode {
+            if hardLimit?.noUsageBasedAllowed == true || onDemandEnabled == false {
+                return .disabled
+            }
+
+            if let limit = resolvedLimitCents, limit > 0 {
+                return .limited(limitCents: limit)
+            }
+
+            if hardLimit?.noUsageBasedAllowed == false || onDemandEnabled == true {
+                return .unlimited
+            }
+
+            return .disabled
+        }
+
+        private var resolvedLimitCents: Int? {
+            if let teamLimitCents, teamLimitCents > 0 {
+                return teamLimitCents
+            }
+            if let individualLimitCents, individualLimitCents > 0 {
+                return individualLimitCents
+            }
+            if let dollars = hardLimit?.hardLimit, dollars > 0 {
+                return dollars * 100
+            }
+            return nil
+        }
+
+        var totalBillCents: Int? {
+            guard let planPriceCents else {
+                return individualUsedCents > 0 ? individualUsedCents : nil
+            }
+            return planPriceCents + individualUsedCents
+        }
+
+        var totalBillLine: String? {
+            guard let totalBillCents else { return nil }
+            return "Total bill this cycle: \(UsageFormatting.dollarsFromCentsInt(totalBillCents))"
+        }
+
+        var totalBillDetailLine: String? {
+            guard let planPriceCents else { return nil }
+            let planLabel = planName.map { "\($0) " } ?? ""
+            return "\(planLabel)\(UsageFormatting.dollarsFromCentsInt(planPriceCents)) plan + \(UsageFormatting.dollarsFromCentsInt(individualUsedCents)) on-demand"
+        }
+
+        var onDemandHeaderLine: String {
+            let used = UsageFormatting.dollarsFromCentsInt(displayedUsedCents)
+            switch mode {
+            case .disabled:
+                return "On-demand: Disabled"
+            case let .limited(limitCents):
+                return "On-demand: \(used) / \(UsageFormatting.dollarsFromCentsInt(limitCents)) limit"
+            case .unlimited:
+                return "On-demand: \(used) · unlimited"
+            }
         }
 
         var youLine: String {
@@ -290,19 +437,28 @@ enum UsageFormatting {
 
         var everyoneElseLine: String? {
             guard hasTeamBudget else { return nil }
-            let teamTotal = teamUsedCents ?? 0
-            let others = max(0, teamTotal - individualUsedCents)
+            let others = max(0, (teamUsedCents ?? 0) - individualUsedCents)
             return "\(UsageFormatting.dollarsFromCentsInt(others)) (everyone else)"
         }
 
-        /// Plain multi-line summary for `--check` / logs.
+        var isOnDemandActive: Bool {
+            displayedUsedCents > 0 || individualUsedCents > 0
+        }
+
         var plainText: String {
-            guard hasTeamBudget else {
-                return headerLine
+            var lines: [String] = []
+            if let totalBillLine {
+                lines.append(totalBillLine)
             }
-            var lines = [headerLine, "  \(youLine)"]
-            if let everyoneElseLine {
-                lines.append("  \(everyoneElseLine)")
+            if let totalBillDetailLine {
+                lines.append("  \(totalBillDetailLine)")
+            }
+            lines.append(onDemandHeaderLine)
+            if hasTeamBudget {
+                lines.append("  \(youLine)")
+                if let everyoneElseLine {
+                    lines.append("  \(everyoneElseLine)")
+                }
             }
             return lines.joined(separator: "\n")
         }
@@ -340,7 +496,8 @@ enum UsageFormatting {
     static func poolSectionTitle(
         prefix: String,
         usedCents: Double,
-        percentUsed: Double?
+        percentUsed: Double?,
+        estimatePool: Bool = true
     ) -> String {
         let percent: Double
         if let percentUsed, percentUsed.isFinite {
@@ -350,7 +507,7 @@ enum UsageFormatting {
         }
         let safeUsedCents = usedCents.isFinite ? usedCents : 0
         let used = dollarsExact(fromCents: safeUsedCents)
-        if let poolCents = predictedPoolCents(usedCents: safeUsedCents, percentUsed: percent) {
+        if estimatePool, let poolCents = predictedPoolCents(usedCents: safeUsedCents, percentUsed: percent) {
             return String(
                 format: "%@ — %@ of %@ (%.1f%%)",
                 prefix,
@@ -360,6 +517,54 @@ enum UsageFormatting {
             )
         }
         return String(format: "%@ — %@ (%.1f%%)", prefix, used, percent)
+    }
+
+    /// Official included cap from the plan, when Cursor publishes one.
+    static func planLimitLine(statedPoolCents: Double?) -> String? {
+        guard let statedPoolCents, statedPoolCents.isFinite, statedPoolCents > 0 else {
+            return nil
+        }
+        return "Plan limit: \(dollarsExactWhole(fromCents: statedPoolCents))"
+    }
+
+    static func dollarsExactWhole(fromCents cents: Double) -> String {
+        guard cents.isFinite else { return "$0" }
+        let dollars = cents / 100.0
+        if abs(dollars - dollars.rounded()) < 0.005 {
+            return String(format: "$%.0f", dollars.rounded())
+        }
+        return dollarsExact(fromCents: cents)
+    }
+
+    static func botResetLine(start: Date?, reset: Date?, now: Date = Date()) -> String {
+        var parts: [String] = []
+        if let start, let reset {
+            parts.append("\(formatCycleDate(start)) – \(formatCycleDate(reset))")
+        }
+        if let reset {
+            parts.append(resetCountdown(until: reset, now: now))
+        }
+        if parts.isEmpty {
+            return "Weekly Grok Bot allowance"
+        }
+        return "Weekly · " + parts.joined(separator: " · ")
+    }
+
+    static func resetCountdown(until date: Date, now: Date = Date()) -> String {
+        let calendar = Calendar.current
+        let days = calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: now),
+            to: calendar.startOfDay(for: date)
+        ).day ?? 0
+        let dateText = formatCycleDate(date)
+        if days <= 0 {
+            return "Resets \(dateText) (today)"
+        }
+        if days == 1 {
+            return "Resets \(dateText) (1 day left)"
+        }
+        return "Resets \(dateText) (\(days) days left)"
     }
 
     static func formatCycleDate(_ date: Date) -> String {

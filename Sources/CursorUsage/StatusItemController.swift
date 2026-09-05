@@ -3,11 +3,16 @@ import AppKit
 struct UsageDisplayState {
     var summary: UsageSummaryResponse?
     var aggregations: AggregatedUsageResponse?
+    var weeklyAggregations: AggregatedUsageResponse?
+    var sandUsage: SandUsageResponse?
+    var planInfo: PlanInfoResponse?
+    var hardLimit: HardLimitResponse?
     var lastUpdated: Date?
     var isAuthenticated: Bool = true
     var authErrorMessage: String?
     var apiPercentIncreased: Bool = false
     var autoPercentIncreased: Bool = false
+    var botPercentIncreased: Bool = false
 }
 
 final class StatusItemController: NSObject, NSMenuDelegate {
@@ -59,25 +64,46 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let onDemandMenubarCents = teamOnDemand ?? individualOnDemand
 
         let title = NSMutableAttributedString()
-        title.append(
+        func appendSegment(_ segment: NSAttributedString) {
+            if title.length > 0 {
+                title.append(NSAttributedString(string: " · ", attributes: baseAttributes()))
+            }
+            title.append(segment)
+        }
+
+        appendSegment(
             formattedLabeledPercentSegment(
                 label: "Cursor",
                 percent: autoPercent,
                 showUpArrow: displayState.autoPercentIncreased
             )
         )
-        title.append(NSAttributedString(string: " · ", attributes: baseAttributes()))
-        title.append(
-            formattedLabeledPercentSegment(
-                label: "API",
-                percent: apiPercent,
-                showUpArrow: displayState.apiPercentIncreased
+
+        if Int(apiPercent.rounded()) > 0 {
+            appendSegment(
+                formattedLabeledPercentSegment(
+                    label: "API",
+                    percent: apiPercent,
+                    showUpArrow: displayState.apiPercentIncreased
+                )
             )
-        )
+        }
+
+        if let botPercent = displayState.sandUsage?.usagePercent,
+           displayState.sandUsage?.showsMenubarPercent == true,
+           Int(botPercent.rounded()) > 0
+        {
+            appendSegment(
+                formattedLabeledPercentSegment(
+                    label: "Bot",
+                    percent: botPercent,
+                    showUpArrow: displayState.botPercentIncreased
+                )
+            )
+        }
 
         if onDemandMenubarCents > 0 {
-            title.append(NSAttributedString(string: " · ", attributes: baseAttributes()))
-            title.append(
+            appendSegment(
                 NSAttributedString(
                     string: UsageFormatting.dollarsFromCentsInt(onDemandMenubarCents),
                     attributes: baseAttributes()
@@ -136,9 +162,18 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
 
         let aggregations = displayState.aggregations?.aggregations
-        let cursorUsedCents = centsUsed(in: aggregations, tier: 2)
-        let apiUsedCents = centsUsed(in: aggregations, tier: 1)
+        let weeklyAggregations = displayState.weeklyAggregations?.aggregations
+        let cursorUsedCents = ModelUsageBreakdown.centsUsed(in: aggregations, kind: .cursor)
+        let apiUsedCents = ModelUsageBreakdown.centsUsed(in: aggregations, kind: .api)
+        let hasWeeklyBotWindow = weeklyAggregations != nil
+        let botSource = weeklyAggregations ?? aggregations
+        let botUsedCents = ModelUsageBreakdown.centsUsed(in: botSource, kind: .bot)
+        let botRows = ModelUsageBreakdown.rows(from: botSource, kind: .bot)
         let totalUsedCents = cursorUsedCents + apiUsedCents
+        let statedApiPoolCents = PlanIncludedBudgets.otherModelsCents(
+            membershipType: summary.membershipType,
+            planInfo: displayState.planInfo
+        )
 
         addInfoItem(
             to: menu,
@@ -157,7 +192,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             titlePrefix: "Cursor",
             percent: summary.autoPercentUsed,
             usedCents: cursorUsedCents,
-            tier: 2
+            kind: .cursor
         )
 
         menu.addItem(.separator())
@@ -167,12 +202,23 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             titlePrefix: "API",
             percent: summary.apiPercentUsed,
             usedCents: apiUsedCents,
-            tier: 1
+            kind: .api,
+            statedPoolCents: statedApiPoolCents
         )
 
+        if displayState.sandUsage?.showsMenubarPercent == true || !botRows.isEmpty {
+            menu.addItem(.separator())
+            addBotSection(
+                to: menu,
+                sand: displayState.sandUsage,
+                rows: botRows,
+                usedCents: botUsedCents,
+                estimatePool: hasWeeklyBotWindow
+            )
+        }
 
         menu.addItem(.separator())
-        addOnDemandSection(to: menu, summary: summary)
+        addBillingSection(to: menu, summary: summary)
         menu.addItem(.separator())
 
         if let lastUpdated = displayState.lastUpdated {
@@ -191,7 +237,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         titlePrefix: String,
         percent: Double?,
         usedCents: Double,
-        tier: Int
+        kind: ModelUsageKind,
+        statedPoolCents: Double? = nil
     ) {
         addInfoItem(
             to: menu,
@@ -203,74 +250,114 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             style: .section,
             indentationLevel: 0
         )
+        if let planLimit = UsageFormatting.planLimitLine(statedPoolCents: statedPoolCents) {
+            addInfoItem(
+                to: menu,
+                title: planLimit,
+                style: .secondary,
+                indentationLevel: 1
+            )
+        }
 
-        guard let aggregations = displayState.aggregations?.aggregations else {
+        guard displayState.aggregations?.aggregations != nil else {
             addInfoItem(to: menu, title: "Loading breakdown…", style: .secondary, indentationLevel: 1)
             return
         }
 
-        let models = aggregations
-            .filter { $0.tier == tier }
-            .filter { ($0.totalCents ?? 0) > 0 || $0.totalTokens > 0 }
-            .sorted {
-                ($0.totalCents ?? 0) > ($1.totalCents ?? 0)
-            }
+        let models = ModelUsageBreakdown.rows(
+            from: displayState.aggregations?.aggregations,
+            kind: kind
+        )
+        addModelRows(models, to: menu)
+    }
 
+    private func addBotSection(
+        to menu: NSMenu,
+        sand: SandUsageResponse?,
+        rows: [ModelUsageRow],
+        usedCents: Double,
+        estimatePool: Bool
+    ) {
+        addInfoItem(
+            to: menu,
+            title: UsageFormatting.poolSectionTitle(
+                prefix: "Bot",
+                usedCents: usedCents,
+                percentUsed: sand?.usagePercent,
+                estimatePool: estimatePool
+            ),
+            style: .section
+        )
+        addInfoItem(
+            to: menu,
+            title: UsageFormatting.botResetLine(start: sand?.periodStartDate, reset: sand?.resetDate),
+            style: .secondary,
+            indentationLevel: 1
+        )
+
+        if displayState.aggregations?.aggregations == nil, displayState.weeklyAggregations?.aggregations == nil {
+            addInfoItem(to: menu, title: "Loading breakdown…", style: .secondary, indentationLevel: 1)
+            return
+        }
+
+        if !rows.isEmpty {
+            addModelRows(rows, to: menu)
+        }
+    }
+
+    private func addModelRows(_ models: [ModelUsageRow], to menu: NSMenu) {
         if models.isEmpty {
             addInfoItem(to: menu, title: "No usage this cycle", style: .secondary, indentationLevel: 1)
             return
         }
 
         for model in models {
-            let intent = model.modelIntent ?? "unknown"
-            let tokens = UsageFormatting.compactTokenCount(model.totalTokens)
-            let dollars = UsageFormatting.dollarsFromCents(model.totalCents)
+            let tokens = UsageFormatting.compactTokenCount(model.tokens)
+            let dollars = UsageFormatting.dollarsFromCents(model.cents)
             addInfoItem(
                 to: menu,
-                title: "\(intent)    \(tokens) tok · \(dollars)",
+                title: "\(model.name)    \(tokens) tok · \(dollars)",
                 style: .body,
                 indentationLevel: 1
             )
         }
     }
 
-    private func centsUsed(
-        in aggregations: [AggregatedUsageResponse.Aggregation]?,
-        tier: Int
-    ) -> Double {
-        guard let aggregations else { return 0 }
-        return aggregations
-            .filter { $0.tier == tier }
-            .reduce(0) { $0 + ($1.totalCents ?? 0) }
-    }
-
-    private func addOnDemandSection(to menu: NSMenu, summary: UsageSummaryResponse) {
-        let onDemandUsed = summary.individualUsage?.onDemand?.used ?? 0
-        let teamUsed = summary.teamUsage?.onDemand?.used
-        let teamLimit = summary.teamUsage?.onDemand?.limit
-        let breakdown = UsageFormatting.OnDemandBreakdown(
-            individualUsedCents: onDemandUsed,
-            teamUsedCents: teamUsed,
-            teamLimitCents: teamLimit
+    private func addBillingSection(to menu: NSMenu, summary: UsageSummaryResponse) {
+        let billing = UsageFormatting.BillingSnapshot.make(
+            summary: summary,
+            planInfo: displayState.planInfo,
+            hardLimit: displayState.hardLimit
         )
-        let highlightOnDemand = onDemandUsed > 0 || (teamUsed ?? 0) > 0
+        let highlightOnDemand = billing.isOnDemandActive
         let valueStyle: InfoItemStyle = highlightOnDemand ? .alert : .body
+
+        if let totalBillLine = billing.totalBillLine {
+            addInfoItem(to: menu, title: totalBillLine, style: .section)
+        }
+        if let totalBillDetailLine = billing.totalBillDetailLine {
+            addInfoItem(
+                to: menu,
+                title: totalBillDetailLine,
+                style: .secondary,
+                indentationLevel: 1
+            )
+        }
 
         addInfoItem(
             to: menu,
-            title: breakdown.headerLine,
+            title: billing.onDemandHeaderLine,
             style: highlightOnDemand ? .alert : .section
         )
 
-        // Always nest the split when a team budget exists, even if you are at $0.
-        if breakdown.hasTeamBudget {
+        if billing.hasTeamBudget {
             addInfoItem(
                 to: menu,
-                title: breakdown.youLine,
+                title: billing.youLine,
                 style: valueStyle,
                 indentationLevel: 1
             )
-            if let everyoneElseLine = breakdown.everyoneElseLine {
+            if let everyoneElseLine = billing.everyoneElseLine {
                 addInfoItem(
                     to: menu,
                     title: everyoneElseLine,

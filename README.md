@@ -1,6 +1,6 @@
 # Cursor Usage
 
-A native macOS menu bar app that shows live Cursor AI usage for the current billing cycle: API usage and first-party (Cursor) usage as percentages in the menu bar, with a dropdown breakdown by model.
+A native macOS menu bar app that shows live Cursor AI usage for the current billing cycle: Cursor, API, and Grok Bot percentages in the menu bar, with a dropdown breakdown by model.
 
 ## Requirements
 
@@ -84,8 +84,15 @@ The app calls unofficial Cursor dashboard endpoints:
 
 - `GET https://cursor.com/api/usage-summary` — billing cycle percentages
 - `POST https://cursor.com/api/dashboard/get-aggregated-usage-events` — per-model breakdown
+- `POST https://cursor.com/api/dashboard/get-sand-usage-status` — Grok Bot weekly percent and reset
+- `POST https://cursor.com/api/dashboard/get-plan-info` — stated Other Models included allowance and plan price
+- `POST https://cursor.com/api/dashboard/get-hard-limit` — on-demand off / limited / unlimited
 
 These endpoints are not public API and may change or break without notice.
+
+Grok Bot (`grok-bot-*` / `sand-*`) rows are listed in their own section. Cursor does not tag third-party models when the bot uses them, so those still appear under API. Each bucket header uses a spend-based pool estimate (`$ used ÷ reported %`). When Cursor publishes an Other Models cap, API also shows `Plan limit: $…`.
+
+The billing footer shows this cycle's subscription plus on-demand spend, and whether on-demand is disabled, limited, or unlimited.
 
 ## Development
 
