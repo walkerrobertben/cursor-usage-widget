@@ -192,7 +192,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             titlePrefix: "Cursor",
             percent: summary.autoPercentUsed,
             usedCents: cursorUsedCents,
-            kind: .cursor
+            kind: .cursor,
+            resetDate: summary.billingCycleEndDate
         )
 
         menu.addItem(.separator())
@@ -203,7 +204,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             percent: summary.apiPercentUsed,
             usedCents: apiUsedCents,
             kind: .api,
-            statedPoolCents: statedApiPoolCents
+            statedPoolCents: statedApiPoolCents,
+            resetDate: summary.billingCycleEndDate
         )
 
         if displayState.sandUsage?.showsMenubarPercent == true || !botRows.isEmpty {
@@ -238,26 +240,20 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         percent: Double?,
         usedCents: Double,
         kind: ModelUsageKind,
-        statedPoolCents: Double? = nil
+        statedPoolCents: Double? = nil,
+        resetDate: Date? = nil
     ) {
-        addInfoItem(
+        addUsageMeter(
             to: menu,
-            title: UsageFormatting.poolSectionTitle(
+            title: UsageFormatting.poolSectionHeading(
                 prefix: titlePrefix,
                 usedCents: usedCents,
                 percentUsed: percent
             ),
-            style: .section,
-            indentationLevel: 0
+            subtitle: UsageFormatting.planLimitLine(statedPoolCents: statedPoolCents),
+            percentUsed: percent,
+            resetDate: resetDate
         )
-        if let planLimit = UsageFormatting.planLimitLine(statedPoolCents: statedPoolCents) {
-            addInfoItem(
-                to: menu,
-                title: planLimit,
-                style: .secondary,
-                indentationLevel: 1
-            )
-        }
 
         guard displayState.aggregations?.aggregations != nil else {
             addInfoItem(to: menu, title: "Loading breakdown…", style: .secondary, indentationLevel: 1)
@@ -278,21 +274,17 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         usedCents: Double,
         estimatePool: Bool
     ) {
-        addInfoItem(
+        addUsageMeter(
             to: menu,
-            title: UsageFormatting.poolSectionTitle(
+            title: UsageFormatting.poolSectionHeading(
                 prefix: "Bot",
                 usedCents: usedCents,
                 percentUsed: sand?.usagePercent,
                 estimatePool: estimatePool
             ),
-            style: .section
-        )
-        addInfoItem(
-            to: menu,
-            title: UsageFormatting.botResetLine(start: sand?.periodStartDate, reset: sand?.resetDate),
-            style: .secondary,
-            indentationLevel: 1
+            subtitle: UsageFormatting.weeklyWindowLine(start: sand?.periodStartDate, reset: sand?.resetDate),
+            percentUsed: sand?.usagePercent,
+            resetDate: sand?.resetDate
         )
 
         if displayState.aggregations?.aggregations == nil, displayState.weeklyAggregations?.aggregations == nil {
@@ -312,14 +304,16 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
 
         for model in models {
-            let tokens = UsageFormatting.compactTokenCount(model.tokens)
-            let dollars = UsageFormatting.dollarsFromCents(model.cents)
-            addInfoItem(
-                to: menu,
-                title: "\(model.name)    \(tokens) tok · \(dollars)",
-                style: .body,
-                indentationLevel: 1
+            let item = NSMenuItem()
+            item.view = UsageModelRowView(
+                content: UsageModelRowContent(
+                    name: model.name,
+                    tokens: UsageFormatting.tokensColumnText(model.tokens),
+                    cost: UsageFormatting.dollarsFromCents(model.cents)
+                )
             )
+            item.isEnabled = true
+            menu.addItem(item)
         }
     }
 
@@ -375,6 +369,26 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         case secondary
         case emphasis
         case alert
+    }
+
+    private func addUsageMeter(
+        to menu: NSMenu,
+        title: String,
+        subtitle: String?,
+        percentUsed: Double?,
+        resetDate: Date?
+    ) {
+        let content = UsageMeterContent(
+            title: title,
+            subtitle: subtitle,
+            percentUsed: UsageFormatting.normalizedPercentUsed(percentUsed),
+            leftCaption: UsageFormatting.percentUsedCaption(percentUsed),
+            rightCaption: UsageFormatting.resetCaption(resetDate)
+        )
+        let item = NSMenuItem()
+        item.view = UsageMeterView(content: content)
+        item.isEnabled = true
+        menu.addItem(item)
     }
 
     private func addInfoItem(

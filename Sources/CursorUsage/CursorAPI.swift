@@ -337,6 +337,10 @@ enum UsageFormatting {
         return "\(count)"
     }
 
+    static func tokensColumnText(_ count: Int) -> String {
+        "\(compactTokenCount(count)) tok"
+    }
+
     static func dollarsFromCents(_ cents: Double?) -> String {
         guard let cents else { return "$0.00" }
         return String(format: "$%.2f", cents / 100.0)
@@ -493,30 +497,63 @@ enum UsageFormatting {
         return String(format: "~$%.0f", (cents / 100.0).rounded())
     }
 
+    static func normalizedPercentUsed(_ percent: Double?) -> Double {
+        guard let percent, percent.isFinite else { return 0 }
+        return max(percent, 0)
+    }
+
+    /// 0...1 fill amount for the usage bar. Values above 100% are capped visually.
+    static func barFraction(percentUsed: Double) -> Double {
+        min(normalizedPercentUsed(percentUsed) / 100.0, 1)
+    }
+
+    static func percentUsedCaption(_ percent: Double?) -> String {
+        let value = normalizedPercentUsed(percent)
+        return "\(Int(value.rounded()))% used"
+    }
+
+    static func resetCaption(_ date: Date?) -> String {
+        guard let date else { return "" }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_GB")
+        formatter.timeZone = TimeZone.current
+        formatter.dateFormat = "d MMM 'at' HH:mm"
+        return "Resets \(formatter.string(from: date))"
+    }
+
+    static func weeklyWindowLine(start: Date?, reset: Date?) -> String? {
+        guard let start, let reset else { return nil }
+        return "\(formatCycleDate(start)) – \(formatCycleDate(reset))"
+    }
+
+    static func poolSectionHeading(
+        prefix: String,
+        usedCents: Double,
+        percentUsed: Double?,
+        estimatePool: Bool = true
+    ) -> String {
+        let percent = normalizedPercentUsed(percentUsed)
+        let safeUsedCents = usedCents.isFinite ? usedCents : 0
+        let used = dollarsExact(fromCents: safeUsedCents)
+        if estimatePool, let poolCents = predictedPoolCents(usedCents: safeUsedCents, percentUsed: percent) {
+            return "\(prefix) — \(used) of \(dollarsApproxPool(fromCents: poolCents))"
+        }
+        return "\(prefix) — \(used)"
+    }
+
     static func poolSectionTitle(
         prefix: String,
         usedCents: Double,
         percentUsed: Double?,
         estimatePool: Bool = true
     ) -> String {
-        let percent: Double
-        if let percentUsed, percentUsed.isFinite {
-            percent = percentUsed
-        } else {
-            percent = 0
-        }
-        let safeUsedCents = usedCents.isFinite ? usedCents : 0
-        let used = dollarsExact(fromCents: safeUsedCents)
-        if estimatePool, let poolCents = predictedPoolCents(usedCents: safeUsedCents, percentUsed: percent) {
-            return String(
-                format: "%@ — %@ of %@ (%.1f%%)",
-                prefix,
-                used,
-                dollarsApproxPool(fromCents: poolCents),
-                percent
-            )
-        }
-        return String(format: "%@ — %@ (%.1f%%)", prefix, used, percent)
+        let heading = poolSectionHeading(
+            prefix: prefix,
+            usedCents: usedCents,
+            percentUsed: percentUsed,
+            estimatePool: estimatePool
+        )
+        return String(format: "%@ (%.1f%%)", heading, normalizedPercentUsed(percentUsed))
     }
 
     /// Official included cap from the plan, when Cursor publishes one.
