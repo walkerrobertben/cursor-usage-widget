@@ -42,3 +42,7 @@ echo
 echo "Custom Cursor profile (optional):"
 echo "  mkdir -p \"\$HOME/Library/Application Support/CursorUsage\""
 echo "  cp .env.example \"\$HOME/Library/Application Support/CursorUsage/.env\""
+echo
+echo "CLI (same binary, no GUI):"
+echo "  \"${APP_PATH}/Contents/MacOS/CursorUsage\" --help"
+echo "  \"${APP_PATH}/Contents/MacOS/CursorUsage\" --check"

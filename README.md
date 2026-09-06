@@ -1,6 +1,6 @@
 # Cursor Usage
 
-A native macOS menu bar app that shows live Cursor AI usage for the current billing cycle: Cursor, API, and Grok Bot percentages in the menu bar, with a dropdown breakdown by model.
+A native macOS menu bar app that shows live Cursor AI usage for the current billing cycle: Cursor, API, and Grok Bot percentages in the menu bar, with a dropdown breakdown by model. The same binary is a CLI (`--help`, `--check`, `--json`) so agents can self-discover options and read the same data without the GUI.
 
 ## Requirements
 
@@ -76,6 +76,13 @@ Ask an agent to find your directory from running processes:
 ps -ax -o args= | grep -i 'Cursor.*--user-data-dir'
 ```
 
+Or pass it to the CLI:
+
+```bash
+CursorUsage --check --user-data-dir /path/to/your/cursor-data
+CursorUsage --auth --json
+```
+
 `.env` is gitignored — keep personal paths out of the repo.
 
 ## API
@@ -94,24 +101,54 @@ Grok Bot (`grok-bot-*` / `sand-*`) rows are listed in their own section. Cursor 
 
 The billing footer shows this cycle's subscription plus on-demand spend, and whether on-demand is disabled, limited, or unlimited.
 
+## CLI
+
+The same binary is a CLI. With no arguments it launches the menu bar extra. Unknown flags now exit with status 2 instead of opening the GUI.
+
+Agents should start with:
+
+```bash
+# Installed / release binary
+CursorUsage --help
+CursorUsage --help --json
+
+# swift run swallows some flags; pass them after --
+swift run CursorUsage -- --help
+swift run CursorUsage -- --help --json
+```
+
+`--help --json` is a machine-readable command catalog (commands, options, environment, exit codes, examples). `--check --json` is the stable usage report (`schemaVersion` 1) and matches the menu bar dropdown: membership, billing cycle, total pool, Cursor / API / Bot meters with per-model rows, plan limit, weekly bot window, and on-demand billing.
+
+```bash
+CursorUsage --check              # full text report (ASCII meters)
+CursorUsage --check --json       # same data as JSON
+CursorUsage --compact            # menu-bar one-liner only
+CursorUsage --auth --json        # which SQLite DB supplied the session
+CursorUsage --self-test          # parser checks, no network
+```
+
+Auth overrides (tried before env / `.env`):
+
+```bash
+CursorUsage --check --user-data-dir /path/to/cursor-data
+CursorUsage --check --state-db /path/to/User/globalStorage/state.vscdb
+```
+
+Exit codes: `0` success, `1` auth/API error, `2` invalid arguments.
+
 ## Development
 
 ```bash
 swift build
-swift run CursorUsage
-```
-
-Self-check (no GUI — prints usage to stdout, including which DB path won):
-
-```bash
-swift run CursorUsage --check
+swift run CursorUsage -- --help
+swift run CursorUsage -- --check
 ```
 
 Release binary only (no `.app` wrapper):
 
 ```bash
 swift build -c release
-.build/release/CursorUsage
+.build/release/CursorUsage --help
 ```
 
 ## Polling

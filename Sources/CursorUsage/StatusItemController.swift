@@ -1,20 +1,5 @@
 import AppKit
 
-struct UsageDisplayState {
-    var summary: UsageSummaryResponse?
-    var aggregations: AggregatedUsageResponse?
-    var weeklyAggregations: AggregatedUsageResponse?
-    var sandUsage: SandUsageResponse?
-    var planInfo: PlanInfoResponse?
-    var hardLimit: HardLimitResponse?
-    var lastUpdated: Date?
-    var isAuthenticated: Bool = true
-    var authErrorMessage: String?
-    var apiPercentIncreased: Bool = false
-    var autoPercentIncreased: Bool = false
-    var botPercentIncreased: Bool = false
-}
-
 final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private var displayState = UsageDisplayState()
@@ -41,87 +26,28 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private func updateStatusTitle() {
         guard let button = statusItem.button else { return }
 
-        if !displayState.isAuthenticated {
+        switch MenubarPresentation.make(from: displayState) {
+        case .warning:
             statusItem.isVisible = true
             button.attributedTitle = NSAttributedString(string: "⚠ Cursor")
-            return
-        }
-
-        guard let summary = displayState.summary else {
-            // Stay invisible until the first successful fetch.
+        case .hidden:
             button.attributedTitle = NSAttributedString(string: "")
             statusItem.isVisible = false
-            return
+        case let .visible(segments):
+            statusItem.isVisible = true
+            button.attributedTitle = attributedTitle(from: segments)
         }
+    }
 
-        statusItem.isVisible = true
-
-        let apiPercent = summary.apiPercentUsed ?? 0
-        let autoPercent = summary.autoPercentUsed ?? 0
-        let individualOnDemand = summary.individualUsage?.onDemand?.used ?? 0
-        let teamOnDemand = summary.teamUsage?.onDemand?.used
-        // Prefer team total in the menubar when a team budget exists.
-        let onDemandMenubarCents = teamOnDemand ?? individualOnDemand
-
+    private func attributedTitle(from segments: [MenubarSegment]) -> NSAttributedString {
         let title = NSMutableAttributedString()
-        func appendSegment(_ segment: NSAttributedString) {
+        for segment in segments {
             if title.length > 0 {
                 title.append(NSAttributedString(string: " · ", attributes: baseAttributes()))
             }
-            title.append(segment)
+            title.append(NSAttributedString(string: segment.text, attributes: baseAttributes()))
         }
-
-        appendSegment(
-            formattedLabeledPercentSegment(
-                label: "Cursor",
-                percent: autoPercent,
-                showUpArrow: displayState.autoPercentIncreased
-            )
-        )
-
-        if Int(apiPercent.rounded()) > 0 {
-            appendSegment(
-                formattedLabeledPercentSegment(
-                    label: "API",
-                    percent: apiPercent,
-                    showUpArrow: displayState.apiPercentIncreased
-                )
-            )
-        }
-
-        if let botPercent = displayState.sandUsage?.usagePercent,
-           displayState.sandUsage?.showsMenubarPercent == true,
-           Int(botPercent.rounded()) > 0
-        {
-            appendSegment(
-                formattedLabeledPercentSegment(
-                    label: "Bot",
-                    percent: botPercent,
-                    showUpArrow: displayState.botPercentIncreased
-                )
-            )
-        }
-
-        if onDemandMenubarCents > 0 {
-            appendSegment(
-                NSAttributedString(
-                    string: UsageFormatting.dollarsFromCentsInt(onDemandMenubarCents),
-                    attributes: baseAttributes()
-                )
-            )
-        }
-
-        button.attributedTitle = title
-    }
-
-    private func formattedLabeledPercentSegment(
-        label: String,
-        percent: Double,
-        showUpArrow: Bool
-    ) -> NSAttributedString {
-        let rounded = Int(percent.rounded())
-        let text = "\(label): \(rounded)%\(showUpArrow ? "↑" : "")"
-        return NSAttributedString(string: text, attributes: baseAttributes())
+        return title
     }
 
     private func baseAttributes(color: NSColor = .labelColor) -> [NSAttributedString.Key: Any] {
@@ -134,175 +60,75 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private func rebuildMenu(_ menu: NSMenu) {
         menu.removeAllItems()
 
-        if !displayState.isAuthenticated {
-            addInfoItem(
-                to: menu,
-                title: displayState.authErrorMessage ?? "Couldn't authenticate — is Cursor signed in?",
-                style: .emphasis
-            )
+        switch UsageScreen.make(from: displayState, includePollingHint: true) {
+        case let .unauthenticated(message):
+            addInfoItem(to: menu, title: message, style: .emphasis)
             addCommonActions(to: menu)
-            return
-        }
-
-        guard let summary = displayState.summary else {
+        case .loading:
             addInfoItem(to: menu, title: "Loading…", style: .secondary)
             addCommonActions(to: menu)
-            return
+        case let .ready(model):
+            addReadyMenuItems(model, to: menu)
+            addCommonActions(to: menu)
+        }
+    }
+
+    private func addReadyMenuItems(_ model: UsageViewModel, to menu: NSMenu) {
+        addInfoItem(to: menu, title: model.headerTitle, style: .header)
+
+        if let cycleLine = model.cycleLine {
+            addInfoItem(to: menu, title: cycleLine, style: .secondary)
         }
 
-        let membership = summary.membershipType ?? "unknown"
-        addInfoItem(to: menu, title: "Cursor Usage — \(membership)", style: .header)
-
-        if let start = summary.billingCycleStartDate, let end = summary.billingCycleEndDate {
-            addInfoItem(
-                to: menu,
-                title: "Cycle: \(UsageFormatting.formatCycleDate(start)) – \(UsageFormatting.formatCycleDate(end))",
-                style: .secondary
-            )
-        }
-
-        let aggregations = displayState.aggregations?.aggregations
-        let weeklyAggregations = displayState.weeklyAggregations?.aggregations
-        let cursorUsedCents = ModelUsageBreakdown.centsUsed(in: aggregations, kind: .cursor)
-        let apiUsedCents = ModelUsageBreakdown.centsUsed(in: aggregations, kind: .api)
-        let hasWeeklyBotWindow = weeklyAggregations != nil
-        let botSource = weeklyAggregations ?? aggregations
-        let botUsedCents = ModelUsageBreakdown.centsUsed(in: botSource, kind: .bot)
-        let botRows = ModelUsageBreakdown.rows(from: botSource, kind: .bot)
-        let totalUsedCents = cursorUsedCents + apiUsedCents
-        let statedApiPoolCents = PlanIncludedBudgets.otherModelsCents(
-            membershipType: summary.membershipType,
-            planInfo: displayState.planInfo
-        )
-
-        addInfoItem(
-            to: menu,
-            title: UsageFormatting.poolSectionTitle(
-                prefix: "Total",
-                usedCents: totalUsedCents,
-                percentUsed: summary.totalPercentUsed
-            ),
-            style: .body
-        )
-
+        addInfoItem(to: menu, title: model.totalTitle, style: .body)
         menu.addItem(.separator())
-
-        addModelSection(
-            to: menu,
-            titlePrefix: "Cursor",
-            percent: summary.autoPercentUsed,
-            usedCents: cursorUsedCents,
-            kind: .cursor,
-            resetDate: summary.billingCycleEndDate
-        )
-
+        addPoolSection(model.cursor, to: menu)
         menu.addItem(.separator())
+        addPoolSection(model.api, to: menu)
 
-        addModelSection(
-            to: menu,
-            titlePrefix: "API",
-            percent: summary.apiPercentUsed,
-            usedCents: apiUsedCents,
-            kind: .api,
-            statedPoolCents: statedApiPoolCents,
-            resetDate: summary.billingCycleEndDate
-        )
-
-        if displayState.sandUsage?.showsMenubarPercent == true || !botRows.isEmpty {
+        if let bot = model.bot {
             menu.addItem(.separator())
-            addBotSection(
-                to: menu,
-                sand: displayState.sandUsage,
-                rows: botRows,
-                usedCents: botUsedCents,
-                estimatePool: hasWeeklyBotWindow
-            )
+            addPoolSection(bot, to: menu)
         }
 
         menu.addItem(.separator())
-        addBillingSection(to: menu, summary: summary)
+        addBillingSection(model.billing, to: menu)
         menu.addItem(.separator())
 
-        if let lastUpdated = displayState.lastUpdated {
+        if let lastUpdatedLine = model.lastUpdatedLine {
+            addInfoItem(to: menu, title: lastUpdatedLine, style: .secondary)
+        }
+    }
+
+    private func addPoolSection(_ section: UsageViewModel.PoolSection, to menu: NSMenu) {
+        addUsageMeter(to: menu, content: section.meterContent)
+
+        if section.aggregationsMissing {
             addInfoItem(
                 to: menu,
-                title: "Refreshes every 30s · Last updated: \(UsageFormatting.formatTime(lastUpdated))",
-                style: .secondary
+                title: section.missingBreakdownMessage,
+                style: .secondary,
+                indentationLevel: 1
             )
-        }
-
-        addCommonActions(to: menu)
-    }
-
-    private func addModelSection(
-        to menu: NSMenu,
-        titlePrefix: String,
-        percent: Double?,
-        usedCents: Double,
-        kind: ModelUsageKind,
-        statedPoolCents: Double? = nil,
-        resetDate: Date? = nil
-    ) {
-        addUsageMeter(
-            to: menu,
-            title: UsageFormatting.poolSectionHeading(
-                prefix: titlePrefix,
-                usedCents: usedCents,
-                percentUsed: percent
-            ),
-            subtitle: UsageFormatting.planLimitLine(statedPoolCents: statedPoolCents),
-            percentUsed: percent,
-            resetDate: resetDate
-        )
-
-        guard displayState.aggregations?.aggregations != nil else {
-            addInfoItem(to: menu, title: "Loading breakdown…", style: .secondary, indentationLevel: 1)
             return
         }
 
-        let models = ModelUsageBreakdown.rows(
-            from: displayState.aggregations?.aggregations,
-            kind: kind
-        )
-        addModelRows(models, to: menu)
-    }
-
-    private func addBotSection(
-        to menu: NSMenu,
-        sand: SandUsageResponse?,
-        rows: [ModelUsageRow],
-        usedCents: Double,
-        estimatePool: Bool
-    ) {
-        addUsageMeter(
-            to: menu,
-            title: UsageFormatting.poolSectionHeading(
-                prefix: "Bot",
-                usedCents: usedCents,
-                percentUsed: sand?.usagePercent,
-                estimatePool: estimatePool
-            ),
-            subtitle: UsageFormatting.weeklyWindowLine(start: sand?.periodStartDate, reset: sand?.resetDate),
-            percentUsed: sand?.usagePercent,
-            resetDate: sand?.resetDate
-        )
-
-        if displayState.aggregations?.aggregations == nil, displayState.weeklyAggregations?.aggregations == nil {
-            addInfoItem(to: menu, title: "Loading breakdown…", style: .secondary, indentationLevel: 1)
+        if section.rows.isEmpty {
+            if section.showsEmptyPlaceholder {
+                addInfoItem(
+                    to: menu,
+                    title: "No usage this cycle",
+                    style: .secondary,
+                    indentationLevel: 1
+                )
+            }
             return
         }
 
-        if !rows.isEmpty {
-            addModelRows(rows, to: menu)
-        }
+        addModelRows(section.rows, to: menu)
     }
 
     private func addModelRows(_ models: [ModelUsageRow], to menu: NSMenu) {
-        if models.isEmpty {
-            addInfoItem(to: menu, title: "No usage this cycle", style: .secondary, indentationLevel: 1)
-            return
-        }
-
         for model in models {
             let item = NSMenuItem()
             item.view = UsageModelRowView(
@@ -317,12 +143,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
-    private func addBillingSection(to menu: NSMenu, summary: UsageSummaryResponse) {
-        let billing = UsageFormatting.BillingSnapshot.make(
-            summary: summary,
-            planInfo: displayState.planInfo,
-            hardLimit: displayState.hardLimit
-        )
+    private func addBillingSection(_ billing: UsageFormatting.BillingSnapshot, to menu: NSMenu) {
         let highlightOnDemand = billing.isOnDemandActive
         let valueStyle: InfoItemStyle = highlightOnDemand ? .alert : .body
 
@@ -371,20 +192,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         case alert
     }
 
-    private func addUsageMeter(
-        to menu: NSMenu,
-        title: String,
-        subtitle: String?,
-        percentUsed: Double?,
-        resetDate: Date?
-    ) {
-        let content = UsageMeterContent(
-            title: title,
-            subtitle: subtitle,
-            percentUsed: UsageFormatting.normalizedPercentUsed(percentUsed),
-            leftCaption: UsageFormatting.percentUsedCaption(percentUsed),
-            rightCaption: UsageFormatting.resetCaption(resetDate)
-        )
+    private func addUsageMeter(to menu: NSMenu, content: UsageMeterContent) {
         let item = NSMenuItem()
         item.view = UsageMeterView(content: content)
         item.isEnabled = true
@@ -464,7 +272,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     @objc private func openDashboard() {
-        if let url = URL(string: "https://cursor.com/dashboard?tab=usage") {
+        if let url = URL(string: AppInfo.dashboardURL) {
             NSWorkspace.shared.open(url)
         }
     }

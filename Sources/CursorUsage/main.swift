@@ -1,8 +1,7 @@
 import AppKit
 
-if CommandLine.arguments.contains("--check") {
-    let exitCode = CheckMode.run()
-    exit(exitCode)
+if case let .finished(code) = CLI.dispatch(arguments: CommandLine.arguments) {
+    exit(code)
 }
 
 let app = NSApplication.shared

@@ -158,13 +158,15 @@ enum CursorAPIError: LocalizedError {
 
 final class CursorAPI {
     private var auth: CursorAuth
+    private let authOverrides: CursorAuthOverrides
 
-    init(auth: CursorAuth) {
+    init(auth: CursorAuth, overrides: CursorAuthOverrides = CursorAuthOverrides()) {
         self.auth = auth
+        self.authOverrides = overrides
     }
 
     func refreshAuth() throws {
-        auth = try CursorAuth.resolve()
+        auth = try CursorAuth.resolve(overrides: authOverrides)
     }
 
     func fetchUsageSummary() async throws -> UsageSummaryResponse {
@@ -222,6 +224,15 @@ final class CursorAPI {
             includeOrigin: true,
             retryOnAuthFailure: true
         )
+    }
+
+    /// Bot's official percent is weekly; monthly cycle $ cannot be divided by it.
+    func fetchWeeklyBotAggregations(sand: SandUsageResponse?) async -> AggregatedUsageResponse? {
+        guard let start = sand?.periodStartDate else { return nil }
+        let reset = sand?.resetDate ?? Date()
+        let end = min(reset, Date())
+        guard end > start else { return nil }
+        return try? await fetchAggregatedUsage(startDate: start, endDate: end)
     }
 
     private func performRequest<Response: Decodable>(
@@ -449,6 +460,24 @@ enum UsageFormatting {
             displayedUsedCents > 0 || individualUsedCents > 0
         }
 
+        var modeIdentifier: String {
+            switch mode {
+            case .disabled:
+                return "disabled"
+            case .limited:
+                return "limited"
+            case .unlimited:
+                return "unlimited"
+            }
+        }
+
+        var limitCents: Int? {
+            if case let .limited(limitCents) = mode {
+                return limitCents
+            }
+            return nil
+        }
+
         var plainText: String {
             var lines: [String] = []
             if let totalBillLine {
@@ -505,6 +534,38 @@ enum UsageFormatting {
     /// 0...1 fill amount for the usage bar. Values above 100% are capped visually.
     static func barFraction(percentUsed: Double) -> Double {
         min(normalizedPercentUsed(percentUsed) / 100.0, 1)
+    }
+
+    static func asciiMeterBar(percentUsed: Double, width: Int = 24) -> String {
+        let fraction = barFraction(percentUsed: percentUsed)
+        var filled = Int((fraction * Double(width)).rounded(.down))
+        if fraction > 0, filled == 0 {
+            filled = 1
+        }
+        filled = min(max(filled, 0), width)
+        let empty = width - filled
+        return "[\(String(repeating: "#", count: filled))\(String(repeating: "-", count: empty))]"
+    }
+
+    static func asciiMeterLine(percentUsed: Double, resetDate: Date?, barWidth: Int = 24) -> String {
+        let bar = asciiMeterBar(percentUsed: percentUsed, width: barWidth)
+        let left = percentUsedCaption(percentUsed)
+        let right = resetCaption(resetDate)
+        if right.isEmpty {
+            return "\(bar)  \(left)"
+        }
+        return "\(bar)  \(left)    \(right)"
+    }
+
+    static func formatModelRows(_ rows: [ModelUsageRow]) -> [String] {
+        let nameWidth = min(40, max(16, rows.map(\.name.count).max() ?? 16))
+        let tokensWidth = 12
+        return rows.map { row in
+            let name = row.name.padding(toLength: nameWidth, withPad: " ", startingAt: 0)
+            let tokens = tokensColumnText(row.tokens)
+                .padding(toLength: tokensWidth, withPad: " ", startingAt: 0)
+            return "\(name)  \(tokens)  \(dollarsFromCents(row.cents))"
+        }
     }
 
     static func percentUsedCaption(_ percent: Double?) -> String {
@@ -617,6 +678,12 @@ enum UsageFormatting {
         formatter.locale = Locale(identifier: "en_GB")
         formatter.timeZone = TimeZone.current
         formatter.dateFormat = "HH:mm:ss"
+        return formatter.string(from: date)
+    }
+
+    static func isoString(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.string(from: date)
     }
 }

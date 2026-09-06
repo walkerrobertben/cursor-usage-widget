@@ -133,7 +133,7 @@ final class UsagePoller {
                 endDate: endDate
             )
             lastAggregations = aggregations
-            if let weekly = await fetchWeeklyAggregations(using: api) {
+            if let weekly = await api.fetchWeeklyBotAggregations(sand: lastSandUsage) {
                 lastWeeklyAggregations = weekly
             }
             lastUpdated = Date()
@@ -143,15 +143,6 @@ final class UsagePoller {
         } catch {
             // Keep last known data on network failures.
         }
-    }
-
-    /// Bot's official percent is weekly; monthly cycle $ cannot be divided by it.
-    private func fetchWeeklyAggregations(using api: CursorAPI) async -> AggregatedUsageResponse? {
-        guard let start = lastSandUsage?.periodStartDate else { return nil }
-        let reset = lastSandUsage?.resetDate ?? Date()
-        let end = min(reset, Date())
-        guard end > start else { return nil }
-        return try? await api.fetchAggregatedUsage(startDate: start, endDate: end)
     }
 
     private func enterAuthError(_ message: String) {
@@ -182,116 +173,6 @@ final class UsagePoller {
         )
         DispatchQueue.main.async { [statusController] in
             statusController.apply(state: state)
-        }
-    }
-}
-
-enum CheckMode {
-    static func run() -> Int32 {
-        do {
-            let auth = try CursorAuth.resolve()
-            print("Database: \(auth.databasePath)")
-            print("Resolved via: \(auth.source)")
-            print("User ID: \(auth.userId)")
-
-            let api = CursorAPI(auth: auth)
-            let summary = try awaitSync { try await api.fetchUsageSummary() }
-
-            print("Membership: \(summary.membershipType ?? "unknown")")
-            if let start = summary.billingCycleStart, let end = summary.billingCycleEnd {
-                print("Billing cycle: \(start) – \(end)")
-            }
-            print(String(format: "API percent: %.2f", summary.apiPercentUsed ?? 0))
-            print(String(format: "Auto percent: %.2f", summary.autoPercentUsed ?? 0))
-            print(String(format: "Total percent: %.2f", summary.totalPercentUsed ?? 0))
-
-            if let sand = try? awaitSync({ try await api.fetchSandUsage() }) {
-                print(String(format: "Bot percent: %.2f", sand.usagePercent ?? 0))
-                if let reset = sand.resetDate {
-                    print("Bot reset: \(UsageFormatting.botResetLine(start: sand.periodStartDate, reset: reset))")
-                }
-            } else {
-                print("Bot percent: unavailable")
-            }
-
-            let plan = try? awaitSync({ try await api.fetchPlanInfo() })
-            if let plan {
-                let stated = PlanIncludedBudgets.otherModelsCents(
-                    membershipType: summary.membershipType,
-                    planInfo: plan
-                )
-                if let stated {
-                    print("Stated API included: \(UsageFormatting.dollarsExactWhole(fromCents: stated))")
-                }
-            }
-            let hardLimit = try? awaitSync({ try await api.fetchHardLimit() })
-            print(
-                UsageFormatting.BillingSnapshot.make(
-                    summary: summary,
-                    planInfo: plan,
-                    hardLimit: hardLimit
-                ).plainText
-            )
-
-            guard let startDate = summary.billingCycleStartDate,
-                  let endDate = summary.billingCycleEndDate
-            else {
-                throw CursorAPIError.missingBillingCycle
-            }
-
-            let aggregations = try awaitSync {
-                try await api.fetchAggregatedUsage(startDate: startDate, endDate: endDate)
-            }
-
-            let models = aggregations.aggregations ?? []
-            if models.isEmpty {
-                print("No model usage found for billing cycle")
-            } else {
-                for model in models.sorted(by: { ($0.totalCents ?? 0) > ($1.totalCents ?? 0) }) {
-                    let intent = model.modelIntent ?? "unknown"
-                    let tier = model.tier ?? -1
-                    let kind = ModelUsageKind.classify(modelIntent: intent, tier: tier)
-                    let bucket: String
-                    switch kind {
-                    case .cursor: bucket = "cursor"
-                    case .api: bucket = "api"
-                    case .bot: bucket = "bot"
-                    }
-                    let tokens = model.totalTokens
-                    let dollars = UsageFormatting.dollarsFromCents(model.totalCents)
-                    print("\(intent) | \(bucket) | tier \(tier) | \(tokens) tokens | \(dollars)")
-                }
-            }
-
-            return 0
-        } catch {
-            fputs("Error: \(error.localizedDescription)\n", stderr)
-            return 1
-        }
-    }
-
-    private static func awaitSync<T>(_ operation: @escaping () async throws -> T) throws -> T {
-        let semaphore = DispatchSemaphore(value: 0)
-        var result: Result<T, Error>?
-
-        Task {
-            do {
-                result = .success(try await operation())
-            } catch {
-                result = .failure(error)
-            }
-            semaphore.signal()
-        }
-
-        semaphore.wait()
-
-        switch result {
-        case let .success(value):
-            return value
-        case let .failure(error):
-            throw error
-        case .none:
-            throw CursorAPIError.invalidURL
         }
     }
 }

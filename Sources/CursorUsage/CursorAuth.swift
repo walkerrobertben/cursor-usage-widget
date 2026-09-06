@@ -1,5 +1,16 @@
 import Foundation
 
+struct CursorAuthOverrides {
+    var stateDB: String?
+    var userDataDir: String?
+}
+
+struct AuthDatabaseCandidate {
+    let path: String
+    let source: String
+    let exists: Bool
+}
+
 enum CursorAuthError: LocalizedError {
     case noDatabaseFound(searched: [String])
     case tokenNotFound
@@ -35,8 +46,8 @@ struct CursorAuth {
         "WorkosCursorSessionToken=\(userId)%3A%3A\(token)"
     }
 
-    static func resolve() throws -> CursorAuth {
-        let candidates = CandidateDatabases.resolve()
+    static func resolve(overrides: CursorAuthOverrides = CursorAuthOverrides()) throws -> CursorAuth {
+        let candidates = CandidateDatabases.resolve(overrides: overrides)
         var searched: [String] = []
 
         for candidate in candidates {
@@ -56,6 +67,18 @@ struct CursorAuth {
         }
 
         throw CursorAuthError.noDatabaseFound(searched: searched)
+    }
+
+    static func listDatabaseCandidates(
+        overrides: CursorAuthOverrides = CursorAuthOverrides()
+    ) -> [AuthDatabaseCandidate] {
+        CandidateDatabases.resolve(overrides: overrides).map { candidate in
+            AuthDatabaseCandidate(
+                path: candidate.path,
+                source: candidate.source,
+                exists: FileManager.default.fileExists(atPath: candidate.path)
+            )
+        }
     }
 
     private static func readToken(from path: String) throws -> String {
@@ -156,7 +179,7 @@ private enum CandidateDatabases {
     static let userDataDirKey = "CURSOR_USER_DATA_DIR"
     static let stateDBKey = "CURSOR_STATE_DB"
 
-    static func resolve() -> [CandidateDatabase] {
+    static func resolve(overrides: CursorAuthOverrides = CursorAuthOverrides()) -> [CandidateDatabase] {
         var candidates: [CandidateDatabase] = []
         var seen = Set<String>()
 
@@ -169,8 +192,19 @@ private enum CandidateDatabases {
         let fileConfig = DotEnv.load()
         let processEnv = ProcessInfo.processInfo.environment
 
+        if let stateDB = firstNonEmpty(overrides.stateDB) {
+            append(path: stateDB, source: "--state-db")
+        }
+
         if let stateDB = firstNonEmpty(processEnv[stateDBKey], fileConfig[stateDBKey]) {
             append(path: stateDB, source: "\(stateDBKey)")
+        }
+
+        if let userDataDir = firstNonEmpty(overrides.userDataDir) {
+            append(
+                path: (userDataDir as NSString).appendingPathComponent(stateDBRelativePath),
+                source: "--user-data-dir"
+            )
         }
 
         if let userDataDir = firstNonEmpty(processEnv[userDataDirKey], fileConfig[userDataDirKey]) {

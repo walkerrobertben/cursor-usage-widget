@@ -9,14 +9,6 @@ enum UsageMenuMetrics {
     static let modelRowHeight: CGFloat = 20
 }
 
-struct UsageMeterContent {
-    var title: String
-    var subtitle: String?
-    var percentUsed: Double
-    var leftCaption: String
-    var rightCaption: String
-}
-
 /// Thin rounded usage bar plus captions, sized for an `NSMenuItem` custom view.
 final class UsageMeterView: NSView {
     static let menuWidth: CGFloat = UsageMenuMetrics.menuWidth
@@ -240,16 +232,16 @@ final class UsageMeterView: NSView {
 
 enum UsageMeterStyle {
     static func fillColor(percentUsed: Double) -> NSColor {
-        if percentUsed >= 100 {
+        switch UsageMeterLevel.from(percentUsed: percentUsed) {
+        case .red:
             return .systemRed
-        }
-        if percentUsed >= 90 {
+        case .orange:
             return .systemOrange
-        }
-        if percentUsed >= 70 {
+        case .yellow:
             return .systemYellow
+        case .green:
+            return .systemGreen
         }
-        return .systemGreen
     }
 }
 

@@ -1,11 +1,5 @@
 import AppKit
 
-struct UsageModelRowContent {
-    var name: String
-    var tokens: String
-    var cost: String
-}
-
 /// Three-column model / tokens / cost row, aligned with `UsageMeterView`.
 final class UsageModelRowView: NSView {
     private let content: UsageModelRowContent
