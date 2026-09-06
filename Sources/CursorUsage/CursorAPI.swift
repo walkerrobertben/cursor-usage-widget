@@ -122,6 +122,12 @@ struct HardLimitResponse: Decodable {
         hardLimitPerUser = Self.decodeInt(from: container, forKey: .hardLimitPerUser)
     }
 
+    init(noUsageBasedAllowed: Bool?, hardLimit: Int?, hardLimitPerUser: Int?) {
+        self.noUsageBasedAllowed = noUsageBasedAllowed
+        self.hardLimit = hardLimit
+        self.hardLimitPerUser = hardLimitPerUser
+    }
+
     private static func decodeInt(
         from container: KeyedDecodingContainer<CodingKeys>,
         forKey key: CodingKeys

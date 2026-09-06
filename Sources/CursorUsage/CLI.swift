@@ -364,33 +364,36 @@ enum CLI {
             let auth = try CursorAuth.resolve(overrides: overrides)
             let api = CursorAPI(auth: auth, overrides: overrides)
             let state = try runBlocking { try await UsageSnapshotFetcher.fetchDisplayState(using: api) }
+            let screen = UsageScreen.make(from: state, includePollingHint: true)
 
-            switch UsageScreen.make(
-                from: state,
-                includePollingHint: false,
-                missingBreakdownMessage: "Breakdown unavailable"
-            ) {
+            switch screen {
             case let .unauthenticated(message):
-                return emitCheckFailure(invocation, message: message, auth: auth)
+                return emitCheckFailure(invocation, message: message, auth: auth, state: state)
             case .loading:
-                return emitCheckFailure(invocation, message: "No usage summary returned", auth: auth)
+                return emitCheckFailure(
+                    invocation,
+                    message: AppSurfaceDump.loadingMessage,
+                    auth: auth,
+                    state: state
+                )
             case let .ready(model):
                 if invocation.format == .json {
-                    print(try UsageReport.json(model: model, auth: auth), terminator: "")
+                    print(try UsageReport.json(state: state, model: model, auth: auth), terminator: "")
                 } else {
-                    print(UsageReport.text(model: model, auth: auth, compact: invocation.compact))
+                    print(UsageReport.text(state: state, auth: auth, compact: invocation.compact))
                 }
                 return 0
             }
         } catch {
-            return emitCheckFailure(invocation, message: error.localizedDescription, auth: nil)
+            return emitCheckFailure(invocation, message: error.localizedDescription, auth: nil, state: nil)
         }
     }
 
     private static func emitCheckFailure(
         _ invocation: CLIInvocation,
         message: String,
-        auth: CursorAuth?
+        auth: CursorAuth?,
+        state: UsageDisplayState?
     ) -> Int32 {
         if invocation.format == .json {
             let document = CheckFailureJSONDocument(
@@ -399,6 +402,7 @@ enum CLI {
                 version: AppInfo.version,
                 error: message,
                 dashboardURL: AppInfo.dashboardURL,
+                visible: state.map { AppSurfaceDump.make(from: $0) },
                 auth: auth.map {
                     CheckFailureJSONDocument.Auth(
                         databasePath: $0.databasePath,
@@ -412,6 +416,9 @@ enum CLI {
             } else {
                 fputs("Error: \(message)\n", stderr)
             }
+        } else if let state {
+            print(UsageReport.text(state: state, auth: auth, compact: invocation.compact))
+            fputs("Error: \(message)\n", stderr)
         } else {
             fputs("Error: \(message)\n", stderr)
         }
@@ -551,6 +558,15 @@ enum CLI {
         expectFailure(["--user-data-dir"])
         expectFailure(["--check", "nope"])
 
+        let dumpFailures = AppSurfaceDump.selfCheckFailures()
+        if dumpFailures.isEmpty {
+            passed += 1
+        } else {
+            for failure in dumpFailures {
+                failures.append("visible dump: \(failure)")
+            }
+        }
+
         let total = passed + failures.count
         if invocation.format == .json {
             let document = SelfTestJSONDocument(
@@ -606,6 +622,7 @@ struct CheckFailureJSONDocument: Encodable {
     let version: String
     let error: String
     let dashboardURL: String
+    let visible: VisibleDump?
     let auth: Auth?
 }
 
@@ -710,9 +727,9 @@ struct CLIHelpDocument: Encodable {
                 Flag(names: ["(no args)"], summary: "Launch the macOS menu bar extra.", value: nil),
                 Flag(names: ["--help", "-h", "-help", "help"], summary: "Show this help. Add --json for a machine-readable command catalog.", value: nil),
                 Flag(names: ["--version", "-V", "-version", "version"], summary: "Print the version.", value: nil),
-                Flag(names: ["--check", "check"], summary: "One-shot usage report matching the menu bar dropdown (no GUI).", value: nil),
+                Flag(names: ["--check", "check"], summary: "Print everything the menu bar extra shows: menubar line, full dropdown (meters, models, billing, footer, actions). No GUI.", value: nil),
                 Flag(names: ["--auth", "auth"], summary: "Resolve the Cursor session database only; do not call the API.", value: nil),
-                Flag(names: ["--self-test", "self-test"], summary: "Parse-argument checks only (no network, no GUI).", value: nil),
+                Flag(names: ["--self-test", "self-test"], summary: "Argument-parser checks plus a fixture dump of every menu-bar/dropdown string (no network, no GUI).", value: nil),
             ],
             options: [
                 Flag(names: ["--json"], summary: "Shortcut for --format json. With no other command, implies --check.", value: nil),
@@ -738,17 +755,17 @@ struct CLIHelpDocument: Encodable {
             ],
             examples: [
                 Example(command: "\(programName) --help --json", summary: "Agent-oriented command catalog."),
-                Example(command: "\(programName) --check", summary: "Human-readable report matching the dropdown."),
-                Example(command: "\(programName) --check --json", summary: "Stable JSON for the same report (schemaVersion \(AppInfo.schemaVersion))."),
+                Example(command: "\(programName) --check", summary: "Transcript of the menu bar extra (menubar + full dropdown)."),
+                Example(command: "\(programName) --check --json", summary: "Same surfaces in JSON. Read `visible` first."),
                 Example(command: "\(programName) --compact", summary: "One line, as shown in the menu bar."),
                 Example(command: "\(programName) --auth --json", summary: "Show which SQLite database supplied the session."),
-                Example(command: "\(programName) --self-test", summary: "Verify CLI argument parsing (no network)."),
+                Example(command: "\(programName) --self-test", summary: "Verify CLI parsing and the visible menu dump (no network)."),
                 Example(command: "swift run CursorUsage -- --check --json", summary: "Pass flags through SwiftPM with --."),
             ],
-            checkJson: "Check JSON includes schemaVersion, ok, menubar, membershipType, billingCycle, percent, total, sections (cursor/api/bot with meter captions, barFraction, meterLevel, models), billing, dashboardURL, and auth. Failures use ok=false and error.",
+            checkJson: "Check JSON includes visible (the exact menu bar + dropdown lines an agent should read first), plus menubar, membershipType, billingCycle, percent, percentIncreased, total, sections (cursor/api/bot with meter captions, barFraction, meterLevel, models), billing, dashboardURL, and auth. Failures use ok=false, error, and visible when the menu would still render.",
             notes: [
-                "--check uses the same UsageViewModel as the menu: membership, cycle, total pool, Cursor/API/Bot meters, per-model rows, plan limit, weekly bot window, and on-demand billing.",
-                "GUI-only behavior: 30s/120s polling, percent-up arrows, and native colored bars. CLI renders the same meters as ASCII and meterLevel.",
+                "--check is a transcript of the app: menu bar, dropdown meters (ASCII bar + color level), captions, per-model rows, billing (including alert styling when on-demand is active), last-updated footer, Refresh Now, Open Dashboard…, and Quit.",
+                "Live-only: the GUI polls every 30s/120s and may show ↑ on the menubar after usage increases. A one-shot CLI fetch has no previous sample, so percentIncreased is false and arrows are absent.",
                 "Never prints the session token. User ID is the JWT subject suffix used in the API cookie.",
                 "Unknown flags exit 2 instead of launching the menu bar extra.",
                 "When using `swift run`, put `--` before tool flags so SwiftPM does not swallow --help / --json.",

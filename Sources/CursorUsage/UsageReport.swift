@@ -40,53 +40,28 @@ enum UsageSnapshotFetcher {
 
 enum UsageReport {
     static func text(
-        model: UsageViewModel,
-        auth: CursorAuth,
+        state: UsageDisplayState,
+        auth: CursorAuth?,
         compact: Bool
     ) -> String {
+        let dump = AppSurfaceDump.make(from: state)
         if compact {
-            return model.menubar.compactLine ?? model.headerTitle
+            return dump.menubarText ?? ""
         }
 
-        var lines: [String] = []
-        lines.append(model.headerTitle)
-        if let cycleLine = model.cycleLine {
-            lines.append(cycleLine)
-        }
-        if let menubar = model.menubar.compactLine {
-            lines.append("Menu bar: \(menubar)")
-        }
-        lines.append("")
-        lines.append(model.totalTitle)
-        lines.append("")
-        lines.append(contentsOf: textSection(model.cursor))
-        lines.append("")
-        lines.append(contentsOf: textSection(model.api))
-        if let bot = model.bot {
+        var lines = [dump.fullText()]
+        if let auth {
             lines.append("")
-            lines.append(contentsOf: textSection(bot))
+            lines.append("Auth")
+            lines.append("  Database: \(auth.databasePath)")
+            lines.append("  Resolved via: \(auth.source)")
+            lines.append("  User ID: \(auth.userId)")
         }
-        lines.append("")
-        lines.append(model.billing.plainText)
-        if let lastUpdatedLine = model.lastUpdatedLine {
-            lines.append("")
-            lines.append(lastUpdatedLine)
-        }
-        lines.append("")
-        lines.append("Auth")
-        lines.append("  Database: \(auth.databasePath)")
-        lines.append("  Resolved via: \(auth.source)")
-        lines.append("  User ID: \(auth.userId)")
-        lines.append("")
-        lines.append("Dashboard: \(model.dashboardURL)")
         return lines.joined(separator: "\n")
     }
 
-    static func json(
-        model: UsageViewModel,
-        auth: CursorAuth
-    ) throws -> String {
-        let document = CheckJSONDocument.make(model: model, auth: auth)
+    static func json(state: UsageDisplayState, model: UsageViewModel, auth: CursorAuth) throws -> String {
+        let document = CheckJSONDocument.make(state: state, model: model, auth: auth)
         return try encodeJSON(document)
     }
 
@@ -101,29 +76,6 @@ enum UsageReport {
             text.append("\n")
         }
         return text
-    }
-
-    private static func textSection(_ section: UsageViewModel.PoolSection) -> [String] {
-        var lines: [String] = [section.title]
-        if let subtitle = section.subtitle, !subtitle.isEmpty {
-            lines.append("  \(subtitle)")
-        }
-        lines.append("  \(UsageFormatting.asciiMeterLine(percentUsed: section.percentUsed, resetDate: section.resetDate))")
-
-        if section.aggregationsMissing {
-            lines.append("  \(section.missingBreakdownMessage)")
-            return lines
-        }
-        if section.rows.isEmpty {
-            if section.showsEmptyPlaceholder {
-                lines.append("  No usage this cycle")
-            }
-            return lines
-        }
-        for row in UsageFormatting.formatModelRows(section.rows) {
-            lines.append("  \(row)")
-        }
-        return lines
     }
 }
 
@@ -180,6 +132,12 @@ struct CheckJSONDocument: Encodable {
         let limitCents: Int?
     }
 
+    struct PercentIncreased: Encodable {
+        let cursor: Bool
+        let api: Bool
+        let bot: Bool
+    }
+
     struct Auth: Encodable {
         let databasePath: String
         let source: String
@@ -189,11 +147,13 @@ struct CheckJSONDocument: Encodable {
     let schemaVersion: Int
     let ok: Bool
     let version: String
+    let visible: VisibleDump
     let menubar: String?
     let membershipType: String
     let header: String
     let billingCycle: BillingCycle
     let percent: Percent
+    let percentIncreased: PercentIncreased
     let total: String
     let totalUsedCents: Double
     let sections: [Section]
@@ -203,11 +163,12 @@ struct CheckJSONDocument: Encodable {
     let dashboardURL: String
     let auth: Auth
 
-    static func make(model: UsageViewModel, auth: CursorAuth) -> CheckJSONDocument {
+    static func make(state: UsageDisplayState, model: UsageViewModel, auth: CursorAuth) -> CheckJSONDocument {
         CheckJSONDocument(
             schemaVersion: AppInfo.schemaVersion,
             ok: true,
             version: AppInfo.version,
+            visible: AppSurfaceDump.make(from: state),
             menubar: model.menubar.compactLine,
             membershipType: model.membershipType,
             header: model.headerTitle,
@@ -221,6 +182,11 @@ struct CheckJSONDocument: Encodable {
                 api: model.apiPercent,
                 total: model.totalPercent,
                 bot: model.botPercent
+            ),
+            percentIncreased: PercentIncreased(
+                cursor: state.autoPercentIncreased,
+                api: state.apiPercentIncreased,
+                bot: state.botPercentIncreased
             ),
             total: model.totalTitle,
             totalUsedCents: model.totalUsedCents,

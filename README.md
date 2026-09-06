@@ -117,11 +117,11 @@ swift run CursorUsage -- --help
 swift run CursorUsage -- --help --json
 ```
 
-`--help --json` is a machine-readable command catalog (commands, options, environment, exit codes, examples). `--check --json` is the stable usage report (`schemaVersion` 1) and matches the menu bar dropdown: membership, billing cycle, total pool, Cursor / API / Bot meters with per-model rows, plan limit, weekly bot window, and on-demand billing.
+`--help --json` is a machine-readable command catalog (commands, options, environment, exit codes, examples). `--check` prints a transcript of the menu bar extra — the menubar line and every dropdown row, including meters, model rows, billing, footer, and actions. `--check --json` includes a `visible` object with those same lines (`schemaVersion` 1).
 
 ```bash
-CursorUsage --check              # full text report (ASCII meters)
-CursorUsage --check --json       # same data as JSON
+CursorUsage --check              # menu bar + full dropdown transcript
+CursorUsage --check --json       # same surfaces in JSON (`visible`)
 CursorUsage --compact            # menu-bar one-liner only
 CursorUsage --auth --json        # which SQLite DB supplied the session
 CursorUsage --self-test          # parser checks, no network
