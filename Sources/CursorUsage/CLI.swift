@@ -106,12 +106,12 @@ enum CLI {
                 continue
             }
 
-            if arg == "-h" || arg == "--help" {
+            if arg == "-h" || arg == "--help" || arg == "-help" || arg == "--h" {
                 wantsHelp = true
                 index += 1
                 continue
             }
-            if arg == "-V" || arg == "--version" {
+            if arg == "-V" || arg == "--version" || arg == "-version" {
                 wantsVersion = true
                 index += 1
                 continue
@@ -515,8 +515,12 @@ enum CLI {
         expectSuccess(["--help"], command: .help)
         expectSuccess(["-h"], command: .help)
         expectSuccess(["help"], command: .help)
+        expectSuccess(["-help"], command: .help)
+        expectSuccess(["--h"], command: .help)
+        expectSuccess(["-version"], command: .version)
         expectSuccess(["--help", "--json"], command: .help, format: .json)
         expectSuccess(["--version"], command: .version)
+        expectSuccess(["version"], command: .version)
         expectSuccess(["-V", "--json"], command: .version, format: .json)
         expectSuccess(["--check"], command: .check)
         expectSuccess(["check"], command: .check)
@@ -704,8 +708,8 @@ struct CLIHelpDocument: Encodable {
             defaultMode: "gui",
             commands: [
                 Flag(names: ["(no args)"], summary: "Launch the macOS menu bar extra.", value: nil),
-                Flag(names: ["--help", "-h", "help"], summary: "Show this help. Add --json for a machine-readable command catalog.", value: nil),
-                Flag(names: ["--version", "-V", "version"], summary: "Print the version.", value: nil),
+                Flag(names: ["--help", "-h", "-help", "help"], summary: "Show this help. Add --json for a machine-readable command catalog.", value: nil),
+                Flag(names: ["--version", "-V", "-version", "version"], summary: "Print the version.", value: nil),
                 Flag(names: ["--check", "check"], summary: "One-shot usage report matching the menu bar dropdown (no GUI).", value: nil),
                 Flag(names: ["--auth", "auth"], summary: "Resolve the Cursor session database only; do not call the API.", value: nil),
                 Flag(names: ["--self-test", "self-test"], summary: "Parse-argument checks only (no network, no GUI).", value: nil),
