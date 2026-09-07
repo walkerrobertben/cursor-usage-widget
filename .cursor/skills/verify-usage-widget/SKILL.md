@@ -24,7 +24,7 @@ This repo is a Swift model plus two views. Do not add a CLI, a text/JSON dump pi
 UPDATE_SNAPSHOTS=1 swift test --filter VisualSnapshotTests
 ```
 
-4. Check every PNG you touched: on-demand sits after Bot and before the cycle total; text is never orange or red; color belongs on progress bars only.
+4. Check every PNG you touched: on-demand sits after Bot and before the cycle total; text is never orange or red; color belongs on progress bars only; section dividers are a 1px inset hairline, not a full-width band.
 
 ## Product rules
 

@@ -197,7 +197,22 @@ public enum MenuHTMLRenderer {
         .row.indent-1 { padding-left: \(Int(MenuLayout.insetX) + 16)px; }
         .style-header, .style-section { font-weight: 600; }
         .style-secondary { color: var(--secondary); font-size: 12px; }
-        .sep { height: \(Int(MenuLayout.separatorHeight))px; margin: 4px 0; background: var(--line); }
+        .sep {
+          height: \(Int(MenuLayout.separatorHeight))px;
+          margin: 0;
+          background: none;
+          position: relative;
+        }
+        .sep::after {
+          content: "";
+          position: absolute;
+          left: \(Int(MenuLayout.insetX))px;
+          right: \(Int(MenuLayout.insetX))px;
+          top: 50%;
+          height: 1px;
+          margin-top: -0.5px;
+          background: var(--line);
+        }
         .meter {
           padding: \(Int(MenuLayout.meterInsetTop))px \(Int(MenuLayout.insetX))px \(Int(MenuLayout.meterInsetBottom))px;
         }
