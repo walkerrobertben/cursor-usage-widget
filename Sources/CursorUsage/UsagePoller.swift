@@ -3,6 +3,7 @@ import Foundation
 import AppKit
 import CursorUsageCore
 
+@MainActor
 public final class UsagePoller {
     private let statusController: StatusItemController
     private var client: UsageClient?
@@ -21,7 +22,7 @@ public final class UsagePoller {
     public init(statusController: StatusItemController) {
         self.statusController = statusController
         statusController.onRefreshRequested = { [weak self] in
-            Task {
+            Task { @MainActor in
                 await self?.refreshAll()
             }
         }
@@ -38,18 +39,18 @@ public final class UsagePoller {
         pushDisplayState()
 
         summaryTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(AppInfo.summaryPollSeconds), repeats: true) { [weak self] _ in
-            Task {
+            Task { @MainActor in
                 await self?.refreshAll()
             }
         }
 
         aggregationTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(AppInfo.aggregationPollSeconds), repeats: true) { [weak self] _ in
-            Task {
+            Task { @MainActor in
                 await self?.refreshAll()
             }
         }
 
-        Task {
+        Task { @MainActor in
             await refreshAll()
         }
     }
@@ -68,8 +69,9 @@ public final class UsagePoller {
         if !state.isAuthenticated, state.authErrorMessage == MenuPresentation.authFallbackMessage {
             do {
                 let auth = try resolveAuth()
-                self.client = UsageClient(auth: auth)
-                state = await self.client!.load()
+                let retryClient = UsageClient(auth: auth)
+                self.client = retryClient
+                state = await retryClient.load()
                 guard generation == loadGeneration, expectedPath == selectedDatabasePath else { return }
             } catch {
                 state.authErrorMessage = error.localizedDescription
@@ -144,7 +146,7 @@ public final class UsagePoller {
             lastState.authErrorMessage = nil
             attachProfiles(to: &lastState)
             statusController.apply(state: lastState)
-            Task {
+            Task { @MainActor in
                 await refreshAll()
             }
         } catch {
@@ -197,10 +199,7 @@ public final class UsagePoller {
     }
 
     private func pushDisplayState() {
-        let state = lastState
-        DispatchQueue.main.async { [statusController] in
-            statusController.apply(state: state)
-        }
+        statusController.apply(state: lastState)
     }
 }
 

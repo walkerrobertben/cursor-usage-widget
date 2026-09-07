@@ -3,6 +3,7 @@ import AppKit
 import CursorUsageCore
 
 /// AppKit dropdown over `MenuPresentation`.
+@MainActor
 public final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private var presentation = MenuPresentation.make(from: UsageDisplayState())

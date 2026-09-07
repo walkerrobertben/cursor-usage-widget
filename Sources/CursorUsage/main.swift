@@ -7,9 +7,12 @@ import AppKit
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 
-let statusController = StatusItemController()
-let poller = UsagePoller(statusController: statusController)
-poller.start()
+let statusController = MainActor.assumeIsolated { StatusItemController() }
+let poller = MainActor.assumeIsolated {
+    let poller = UsagePoller(statusController: statusController)
+    poller.start()
+    return poller
+}
 
 app.run()
 #else
