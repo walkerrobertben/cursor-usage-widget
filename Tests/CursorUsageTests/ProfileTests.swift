@@ -161,6 +161,56 @@ final class ProfileTests: XCTestCase {
         XCTAssertEqual(presentation.profileSwitcher?.options.map(\.isSelected), [false, false, false])
     }
 
+    func testOpenMenuRebuildsWhenLoadingBecomesReady() async throws {
+        let loading = MenuPresentation.make(
+            from: UsageDisplayState(profiles: SampleProfiles.workAndPersonal()),
+            calendar: TestCalendar.snapshot
+        )
+        let ready = try await ScenarioLoad.presentation(.ultra, profiles: SampleProfiles.workAndPersonal())
+
+        XCTAssertEqual(loading.text(matching: "loading"), MenuPresentation.loadingMessage)
+        XCTAssertNil(ready.text(matching: "loading"))
+        XCTAssertTrue(ready.shouldReplaceOpenMenu(from: loading, isOpen: true))
+        XCTAssertFalse(ready.shouldReplaceOpenMenu(from: loading, isOpen: false))
+    }
+
+    func testOpenMenuDoesNotRebuildWhenRowsAreUnchanged() {
+        let loading = MenuPresentation.make(
+            from: UsageDisplayState(profiles: SampleProfiles.workAndPersonal()),
+            calendar: TestCalendar.snapshot
+        )
+        XCTAssertFalse(loading.shouldReplaceOpenMenu(from: loading, isOpen: true))
+    }
+
+    func testOpenMenuRebuildsWhenProfilesAppearOnLoadingState() {
+        let before = MenuPresentation.make(from: UsageDisplayState(), calendar: TestCalendar.snapshot)
+        let after = MenuPresentation.make(
+            from: UsageDisplayState(profiles: SampleProfiles.workAndPersonal()),
+            calendar: TestCalendar.snapshot
+        )
+        XCTAssertNil(before.profileSwitcher)
+        XCTAssertNotNil(after.profileSwitcher)
+        XCTAssertTrue(after.shouldReplaceOpenMenu(from: before, isOpen: true))
+    }
+
+    func testOpenMenuIgnoresMenubarOnlyChanges() async throws {
+        var (state, _) = try await ScenarioLoad.state(.ultra)
+        state.profiles = SampleProfiles.workAndPersonal()
+        let before = MenuPresentation.make(from: state, calendar: TestCalendar.snapshot)
+        state.autoPercentIncreased = true
+        let after = MenuPresentation.make(from: state, calendar: TestCalendar.snapshot)
+
+        XCTAssertNotEqual(before.menubar, after.menubar)
+        XCTAssertEqual(before.rows, after.rows)
+        XCTAssertFalse(after.shouldReplaceOpenMenu(from: before, isOpen: true))
+    }
+
+    func testOpenMenuRebuildsWhenReadyUsageChanges() async throws {
+        let empty = try await ScenarioLoad.presentation(.emptyMeters).0
+        let full = try await ScenarioLoad.presentation(.fullMeters).0
+        XCTAssertTrue(full.shouldReplaceOpenMenu(from: empty, isOpen: true))
+    }
+
     func testLoadingMenuStillOffersProfileSubmenu() {
         let presentation = MenuPresentation.make(
             from: UsageDisplayState(profiles: SampleProfiles.workAndPersonal()),

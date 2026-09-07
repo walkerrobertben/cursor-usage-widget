@@ -6,6 +6,7 @@ import CursorUsageCore
 public final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private var presentation = MenuPresentation.make(from: UsageDisplayState())
+    private var isMenuOpen = false
     public var onRefreshRequested: (() -> Void)?
     public var onMenuWillOpen: (() -> Void)?
     public var onProfileSelected: ((String) -> Void)?
@@ -19,14 +20,26 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     public func apply(state: UsageDisplayState, calendar: DisplayCalendar = .current) {
-        presentation = MenuPresentation.make(from: state, calendar: calendar)
+        let next = MenuPresentation.make(from: state, calendar: calendar)
+        let shouldRebuild = next.shouldReplaceOpenMenu(from: presentation, isOpen: isMenuOpen)
+        presentation = next
         updateStatusTitle()
-        statusItem.menu?.update()
+        if shouldRebuild, let menu = statusItem.menu {
+            rebuildMenu(menu)
+        }
     }
 
     public func menuNeedsUpdate(_ menu: NSMenu) {
         onMenuWillOpen?()
         rebuildMenu(menu)
+    }
+
+    public func menuWillOpen(_ menu: NSMenu) {
+        isMenuOpen = true
+    }
+
+    public func menuDidClose(_ menu: NSMenu) {
+        isMenuOpen = false
     }
 
     private func updateStatusTitle() {

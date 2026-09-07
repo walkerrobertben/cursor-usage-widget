@@ -416,6 +416,11 @@ extension MenuPresentation {
         return nil
     }
 
+    /// The live AppKit dropdown rebuilds from `rows` while it is open.
+    public func shouldReplaceOpenMenu(from previous: MenuPresentation, isOpen: Bool) -> Bool {
+        isOpen && rows != previous.rows
+    }
+
     public var roleOrder: [String] {
         rows.compactMap { row in
             switch row {
