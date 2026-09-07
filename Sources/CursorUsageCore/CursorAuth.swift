@@ -1,22 +1,27 @@
 import Foundation
 
-struct CursorAuthOverrides {
-    var stateDB: String?
-    var userDataDir: String?
+public struct CursorAuthOverrides: Sendable {
+    public var stateDB: String?
+    public var userDataDir: String?
+
+    public init(stateDB: String? = nil, userDataDir: String? = nil) {
+        self.stateDB = stateDB
+        self.userDataDir = userDataDir
+    }
 }
 
-struct AuthDatabaseCandidate {
-    let path: String
-    let source: String
-    let exists: Bool
+public struct AuthDatabaseCandidate: Sendable {
+    public let path: String
+    public let source: String
+    public let exists: Bool
 }
 
-enum CursorAuthError: LocalizedError {
+public enum CursorAuthError: LocalizedError, Sendable {
     case noDatabaseFound(searched: [String])
     case tokenNotFound
     case invalidToken
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case let .noDatabaseFound(searched):
             let paths = searched.isEmpty
@@ -36,17 +41,24 @@ enum CursorAuthError: LocalizedError {
     }
 }
 
-struct CursorAuth {
-    let databasePath: String
-    let token: String
-    let userId: String
-    let source: String
+public struct CursorAuth: Sendable {
+    public let databasePath: String
+    public let token: String
+    public let userId: String
+    public let source: String
 
-    var cookieHeaderValue: String {
+    public init(databasePath: String, token: String, userId: String, source: String) {
+        self.databasePath = databasePath
+        self.token = token
+        self.userId = userId
+        self.source = source
+    }
+
+    public var cookieHeaderValue: String {
         "WorkosCursorSessionToken=\(userId)%3A%3A\(token)"
     }
 
-    static func resolve(overrides: CursorAuthOverrides = CursorAuthOverrides()) throws -> CursorAuth {
+    public static func resolve(overrides: CursorAuthOverrides = CursorAuthOverrides()) throws -> CursorAuth {
         let candidates = CandidateDatabases.resolve(overrides: overrides)
         var searched: [String] = []
 
@@ -193,7 +205,7 @@ private enum CandidateDatabases {
         let processEnv = ProcessInfo.processInfo.environment
 
         if let stateDB = firstNonEmpty(overrides.stateDB) {
-            append(path: stateDB, source: "--state-db")
+            append(path: stateDB, source: "override state db")
         }
 
         if let stateDB = firstNonEmpty(processEnv[stateDBKey], fileConfig[stateDBKey]) {
@@ -203,7 +215,7 @@ private enum CandidateDatabases {
         if let userDataDir = firstNonEmpty(overrides.userDataDir) {
             append(
                 path: (userDataDir as NSString).appendingPathComponent(stateDBRelativePath),
-                source: "--user-data-dir"
+                source: "override user data dir"
             )
         }
 

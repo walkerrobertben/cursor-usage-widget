@@ -1,0 +1,8 @@
+{
+  "currentPeriodStart": "2026-09-01T00:00:00.000Z",
+  "nextResetTimestampUtc": "2026-09-08T12:00:00.000Z",
+  "usagePercent": 0,
+  "hasAvailableUsage": false,
+  "hasNonZeroIncludedLimit": false,
+  "grokPlanLabel": null
+}

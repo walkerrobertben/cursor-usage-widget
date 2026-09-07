@@ -1,7 +1,7 @@
 import Foundation
 
-enum ISODates {
-    static func parse(_ value: String?) -> Date? {
+public enum ISODates {
+    public static func parse(_ value: String?) -> Date? {
         guard let value else { return nil }
 
         let formatter = ISO8601DateFormatter()
@@ -15,12 +15,12 @@ enum ISODates {
     }
 }
 
-enum ModelUsageKind {
+public enum ModelUsageKind: Sendable {
     case cursor
     case api
     case bot
 
-    static func classify(modelIntent: String?, tier: Int?) -> ModelUsageKind {
+    public static func classify(modelIntent: String?, tier: Int?) -> ModelUsageKind {
         if isGrokBotModel(modelIntent) {
             return .bot
         }
@@ -30,9 +30,7 @@ enum ModelUsageKind {
         return .api
     }
 
-    /// Grok Bot's own model slugs. Cursor does not tag third-party models
-    /// (Claude, GPT, Gemini, …) when the bot uses them.
-    static func isGrokBotModel(_ name: String?) -> Bool {
+    public static func isGrokBotModel(_ name: String?) -> Bool {
         guard let name else { return false }
         let normalized = name.lowercased()
         return normalized.hasPrefix("grok-bot")
@@ -41,14 +39,14 @@ enum ModelUsageKind {
     }
 }
 
-struct ModelUsageRow {
-    let name: String
-    let tokens: Int
-    let cents: Double
+public struct ModelUsageRow: Equatable, Sendable {
+    public let name: String
+    public let tokens: Int
+    public let cents: Double
 }
 
-enum ModelUsageBreakdown {
-    static func rows(
+public enum ModelUsageBreakdown {
+    public static func rows(
         from aggregations: [AggregatedUsageResponse.Aggregation]?,
         kind: ModelUsageKind
     ) -> [ModelUsageRow] {
@@ -77,7 +75,7 @@ enum ModelUsageBreakdown {
             .sorted { $0.cents > $1.cents }
     }
 
-    static func centsUsed(
+    public static func centsUsed(
         in aggregations: [AggregatedUsageResponse.Aggregation]?,
         kind: ModelUsageKind
     ) -> Double {
@@ -85,10 +83,45 @@ enum ModelUsageBreakdown {
     }
 }
 
-enum PlanIncludedBudgets {
-    /// Official Other Models (API) included allowance, in cents.
-    /// Prefers `get-plan-info`, then a published individual-plan fallback.
-    static func otherModelsCents(
+public enum PlanDisplay {
+    public static func name(summary: UsageSummaryResponse, planInfo: PlanInfoResponse?) -> String {
+        if let planName = planInfo?.planInfo?.planName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !planName.isEmpty
+        {
+            return planName
+        }
+        return name(fromMembership: summary.membershipType, isTeam: summary.isTeamPlan)
+    }
+
+    public static func name(fromMembership membershipType: String?, isTeam: Bool) -> String {
+        switch normalized(membershipType) {
+        case "enterprise":
+            return "Enterprise"
+        case "ultra":
+            return "Ultra"
+        case "pro_plus", "proplus", "pro+", "pro plus":
+            return "Pro+"
+        case "pro":
+            return isTeam ? "Enterprise" : "Pro"
+        case "hobby", "free", "start":
+            return "Hobby"
+        case let value where !value.isEmpty:
+            return value.replacingOccurrences(of: "_", with: " ").capitalized
+        default:
+            return isTeam ? "Enterprise" : "Cursor"
+        }
+    }
+
+    public static func normalized(_ value: String?) -> String {
+        (value ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+    }
+}
+
+public enum PlanIncludedBudgets {
+    public static func otherModelsCents(
         membershipType: String?,
         planInfo: PlanInfoResponse?
     ) -> Double? {
@@ -98,8 +131,8 @@ enum PlanIncludedBudgets {
         return fallbackOtherModelsCents(membershipType: membershipType)
     }
 
-    static func fallbackOtherModelsCents(membershipType: String?) -> Double? {
-        switch normalizedMembership(membershipType) {
+    public static func fallbackOtherModelsCents(membershipType: String?) -> Double? {
+        switch PlanDisplay.normalized(membershipType) {
         case "ultra":
             return 40_000
         case "pro_plus", "proplus", "pro+", "pro plus":
@@ -113,7 +146,7 @@ enum PlanIncludedBudgets {
         }
     }
 
-    static func monthlyPriceCents(
+    public static func monthlyPriceCents(
         membershipType: String?,
         planInfo: PlanInfoResponse?
     ) -> Int? {
@@ -123,7 +156,7 @@ enum PlanIncludedBudgets {
         return fallbackMonthlyPriceCents(membershipType: membershipType)
     }
 
-    static func parsePriceCents(_ price: String?) -> Int? {
+    public static func parsePriceCents(_ price: String?) -> Int? {
         guard let price else { return nil }
         let collapsed = price.replacingOccurrences(of: ",", with: "")
         guard let match = collapsed.range(of: #"\$([0-9]+(?:\.[0-9]+)?)"#, options: .regularExpression) else {
@@ -136,8 +169,8 @@ enum PlanIncludedBudgets {
         return Int((dollars * 100.0).rounded())
     }
 
-    static func fallbackMonthlyPriceCents(membershipType: String?) -> Int? {
-        switch normalizedMembership(membershipType) {
+    public static func fallbackMonthlyPriceCents(membershipType: String?) -> Int? {
+        switch PlanDisplay.normalized(membershipType) {
         case "ultra":
             return 20_000
         case "pro_plus", "proplus", "pro+", "pro plus":
@@ -149,34 +182,5 @@ enum PlanIncludedBudgets {
         default:
             return nil
         }
-    }
-
-    private static func normalizedMembership(_ value: String?) -> String {
-        (value ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .replacingOccurrences(of: "-", with: "_")
-    }
-}
-
-extension UsageFormatting.BillingSnapshot {
-    static func make(
-        summary: UsageSummaryResponse,
-        planInfo: PlanInfoResponse?,
-        hardLimit: HardLimitResponse?
-    ) -> UsageFormatting.BillingSnapshot {
-        UsageFormatting.BillingSnapshot(
-            planName: planInfo?.planInfo?.planName ?? summary.membershipType,
-            planPriceCents: PlanIncludedBudgets.monthlyPriceCents(
-                membershipType: summary.membershipType,
-                planInfo: planInfo
-            ),
-            individualUsedCents: summary.individualUsage?.onDemand?.used ?? 0,
-            individualLimitCents: summary.individualUsage?.onDemand?.limit,
-            teamUsedCents: summary.teamUsage?.onDemand?.used,
-            teamLimitCents: summary.teamUsage?.onDemand?.limit,
-            hardLimit: hardLimit,
-            onDemandEnabled: summary.individualUsage?.onDemand?.enabled
-        )
     }
 }

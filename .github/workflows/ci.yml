@@ -1,0 +1,29 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  linux:
+    name: Linux
+    runs-on: ubuntu-latest
+    env:
+      TZ: UTC
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.1.2"
+      - uses: browser-actions/setup-chrome@v1
+      - name: Install Pillow for PNG cropping
+        run: sudo apt-get update && sudo apt-get install -y python3-pil
+      - name: Run model and visual tests
+        run: swift test
+      - name: Upload visual snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-snapshots
+          path: Tests/CursorUsageTests/Snapshots/*.png

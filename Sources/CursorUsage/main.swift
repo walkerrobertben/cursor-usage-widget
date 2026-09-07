@@ -1,8 +1,8 @@
-import AppKit
+import Foundation
+import CursorUsageCore
 
-if case let .finished(code) = CLI.dispatch(arguments: CommandLine.arguments) {
-    exit(code)
-}
+#if canImport(AppKit)
+import AppKit
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
@@ -12,3 +12,7 @@ let poller = UsagePoller(statusController: statusController)
 poller.start()
 
 app.run()
+#else
+fputs("Cursor Usage is a macOS menu bar app.\n", stderr)
+exit(1)
+#endif

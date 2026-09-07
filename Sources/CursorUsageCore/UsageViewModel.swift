@@ -1,41 +1,89 @@
 import Foundation
 
-struct UsageDisplayState {
-    var summary: UsageSummaryResponse?
-    var aggregations: AggregatedUsageResponse?
-    var weeklyAggregations: AggregatedUsageResponse?
-    var sandUsage: SandUsageResponse?
-    var planInfo: PlanInfoResponse?
-    var hardLimit: HardLimitResponse?
-    var lastUpdated: Date?
-    var isAuthenticated: Bool = true
-    var authErrorMessage: String?
-    var apiPercentIncreased: Bool = false
-    var autoPercentIncreased: Bool = false
-    var botPercentIncreased: Bool = false
+public struct UsageDisplayState: Equatable, Sendable {
+    public var summary: UsageSummaryResponse?
+    public var aggregations: AggregatedUsageResponse?
+    public var weeklyAggregations: AggregatedUsageResponse?
+    public var sandUsage: SandUsageResponse?
+    public var planInfo: PlanInfoResponse?
+    public var hardLimit: HardLimitResponse?
+    public var lastUpdated: Date?
+    public var isAuthenticated: Bool
+    public var authErrorMessage: String?
+    public var apiPercentIncreased: Bool
+    public var autoPercentIncreased: Bool
+    public var botPercentIncreased: Bool
+
+    public init(
+        summary: UsageSummaryResponse? = nil,
+        aggregations: AggregatedUsageResponse? = nil,
+        weeklyAggregations: AggregatedUsageResponse? = nil,
+        sandUsage: SandUsageResponse? = nil,
+        planInfo: PlanInfoResponse? = nil,
+        hardLimit: HardLimitResponse? = nil,
+        lastUpdated: Date? = nil,
+        isAuthenticated: Bool = true,
+        authErrorMessage: String? = nil,
+        apiPercentIncreased: Bool = false,
+        autoPercentIncreased: Bool = false,
+        botPercentIncreased: Bool = false
+    ) {
+        self.summary = summary
+        self.aggregations = aggregations
+        self.weeklyAggregations = weeklyAggregations
+        self.sandUsage = sandUsage
+        self.planInfo = planInfo
+        self.hardLimit = hardLimit
+        self.lastUpdated = lastUpdated
+        self.isAuthenticated = isAuthenticated
+        self.authErrorMessage = authErrorMessage
+        self.apiPercentIncreased = apiPercentIncreased
+        self.autoPercentIncreased = autoPercentIncreased
+        self.botPercentIncreased = botPercentIncreased
+    }
 }
 
-struct UsageMeterContent {
-    var title: String
-    var subtitle: String?
-    var percentUsed: Double
-    var leftCaption: String
-    var rightCaption: String
+public struct UsageMeterContent: Equatable, Sendable {
+    public var title: String
+    public var subtitle: String?
+    public var percentUsed: Double
+    public var leftCaption: String
+    public var rightCaption: String
+
+    public init(
+        title: String,
+        subtitle: String?,
+        percentUsed: Double,
+        leftCaption: String,
+        rightCaption: String
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.percentUsed = percentUsed
+        self.leftCaption = leftCaption
+        self.rightCaption = rightCaption
+    }
 }
 
-struct UsageModelRowContent {
-    var name: String
-    var tokens: String
-    var cost: String
+public struct UsageModelRowContent: Equatable, Sendable {
+    public var name: String
+    public var tokens: String
+    public var cost: String
+
+    public init(name: String, tokens: String, cost: String) {
+        self.name = name
+        self.tokens = tokens
+        self.cost = cost
+    }
 }
 
-enum UsageMeterLevel: String {
+public enum UsageMeterLevel: String, Equatable, Sendable {
     case green
     case yellow
     case orange
     case red
 
-    static func from(percentUsed: Double) -> UsageMeterLevel {
+    public static func from(percentUsed: Double) -> UsageMeterLevel {
         let percent = UsageFormatting.normalizedPercentUsed(percentUsed)
         if percent >= 100 { return .red }
         if percent >= 90 { return .orange }
@@ -44,16 +92,20 @@ enum UsageMeterLevel: String {
     }
 }
 
-struct MenubarSegment: Equatable {
-    var text: String
+public struct MenubarSegment: Equatable, Sendable {
+    public var text: String
+
+    public init(text: String) {
+        self.text = text
+    }
 }
 
-enum MenubarPresentation: Equatable {
+public enum MenubarPresentation: Equatable, Sendable {
     case hidden
     case warning
     case visible([MenubarSegment])
 
-    var compactLine: String? {
+    public var compactLine: String? {
         switch self {
         case .hidden:
             return nil
@@ -64,7 +116,7 @@ enum MenubarPresentation: Equatable {
         }
     }
 
-    static func make(from state: UsageDisplayState) -> MenubarPresentation {
+    public static func make(from state: UsageDisplayState) -> MenubarPresentation {
         if !state.isAuthenticated {
             return .warning
         }
@@ -76,7 +128,6 @@ enum MenubarPresentation: Equatable {
         let autoPercent = summary.autoPercentUsed ?? 0
         let individualOnDemand = summary.individualUsage?.onDemand?.used ?? 0
         let teamOnDemand = summary.teamUsage?.onDemand?.used
-        // Prefer team total in the menubar when a team budget exists.
         let onDemandMenubarCents = teamOnDemand ?? individualOnDemand
 
         var segments: [MenubarSegment] = []
@@ -132,71 +183,67 @@ enum MenubarPresentation: Equatable {
     }
 }
 
-struct UsageViewModel {
-    struct PoolSection {
-        let id: String
-        let title: String
-        let subtitle: String?
-        let percentUsed: Double
-        let resetDate: Date?
-        let usedCents: Double
-        let estimatedPoolCents: Double?
-        let planLimitCents: Double?
-        let rows: [ModelUsageRow]
-        let aggregationsMissing: Bool
-        let showsEmptyPlaceholder: Bool
-        let missingBreakdownMessage: String
+public struct UsageViewModel: Equatable, Sendable {
+    public struct PoolSection: Equatable, Sendable {
+        public let id: String
+        public let title: String
+        public let subtitle: String?
+        public let percentUsed: Double
+        public let resetDate: Date?
+        public let usedCents: Double
+        public let estimatedPoolCents: Double?
+        public let planLimitCents: Double?
+        public let rows: [ModelUsageRow]
+        public let aggregationsMissing: Bool
+        public let showsEmptyPlaceholder: Bool
+        public let missingBreakdownMessage: String
 
-        var leftCaption: String {
+        public var leftCaption: String {
             UsageFormatting.percentUsedCaption(percentUsed)
         }
 
-        var rightCaption: String {
-            UsageFormatting.resetCaption(resetDate)
+        public func rightCaption(calendar: DisplayCalendar) -> String {
+            UsageFormatting.resetCaption(resetDate, calendar: calendar)
         }
 
-        var meterContent: UsageMeterContent {
+        public func meterContent(calendar: DisplayCalendar) -> UsageMeterContent {
             UsageMeterContent(
                 title: title,
                 subtitle: subtitle,
                 percentUsed: UsageFormatting.normalizedPercentUsed(percentUsed),
                 leftCaption: leftCaption,
-                rightCaption: rightCaption
+                rightCaption: rightCaption(calendar: calendar)
             )
         }
 
-        var meterLevel: UsageMeterLevel {
+        public var meterLevel: UsageMeterLevel {
             UsageMeterLevel.from(percentUsed: percentUsed)
-        }
-
-        var breakdownStatus: String {
-            if aggregationsMissing { return "unavailable" }
-            if rows.isEmpty { return "empty" }
-            return "ok"
         }
     }
 
-    let headerTitle: String
-    let membershipType: String
-    let cycleLine: String?
-    let billingCycleStart: String?
-    let billingCycleEnd: String?
-    let totalTitle: String
-    let totalUsedCents: Double
-    let cursorPercent: Double
-    let apiPercent: Double
-    let totalPercent: Double
-    let botPercent: Double?
-    let cursor: PoolSection
-    let api: PoolSection
-    let bot: PoolSection?
-    let billing: UsageFormatting.BillingSnapshot
-    let lastUpdatedLine: String?
-    let fetchedAt: Date?
-    let menubar: MenubarPresentation
-    let dashboardURL: String
+    public let headerTitle: String
+    public let membershipType: String
+    public let planDisplayName: String
+    public let cycleLine: String?
+    public let billingCycleStart: String?
+    public let billingCycleEnd: String?
+    public let totalTitle: String
+    public let totalUsedCents: Double
+    public let cursorPercent: Double
+    public let apiPercent: Double
+    public let totalPercent: Double
+    public let botPercent: Double?
+    public let cursor: PoolSection
+    public let api: PoolSection
+    public let bot: PoolSection?
+    public let billing: UsageFormatting.BillingSnapshot
+    public let billingResetDate: Date?
+    public let lastUpdatedLine: String?
+    public let fetchedAt: Date?
+    public let menubar: MenubarPresentation
+    public let dashboardURL: String
 
-    var sections: [PoolSection] {
+    public var sections: [PoolSection] {
         if let bot {
             return [cursor, api, bot]
         }
@@ -204,19 +251,20 @@ struct UsageViewModel {
     }
 }
 
-enum UsageScreen {
+public enum UsageScreen: Equatable, Sendable {
     case unauthenticated(message: String)
     case loading
     case ready(UsageViewModel)
 
-    static func make(
+    public static func make(
         from state: UsageDisplayState,
-        includePollingHint: Bool,
+        calendar: DisplayCalendar = .current,
+        includePollingHint: Bool = true,
         missingBreakdownMessage: String = "Loading breakdown…"
     ) -> UsageScreen {
         if !state.isAuthenticated {
             return .unauthenticated(
-                message: state.authErrorMessage ?? "Couldn't authenticate — is Cursor signed in?"
+                message: state.authErrorMessage ?? MenuPresentation.authFallbackMessage
             )
         }
         guard let summary = state.summary else {
@@ -226,6 +274,7 @@ enum UsageScreen {
             UsageViewModel.make(
                 from: state,
                 summary: summary,
+                calendar: calendar,
                 includePollingHint: includePollingHint,
                 missingBreakdownMessage: missingBreakdownMessage
             )
@@ -234,18 +283,15 @@ enum UsageScreen {
 }
 
 extension UsageViewModel {
-    static func make(
+    public static func make(
         from state: UsageDisplayState,
         summary: UsageSummaryResponse,
-        includePollingHint: Bool,
-        missingBreakdownMessage: String
+        calendar: DisplayCalendar = .current,
+        includePollingHint: Bool = true,
+        missingBreakdownMessage: String = "Loading breakdown…"
     ) -> UsageViewModel {
+        let planDisplayName = PlanDisplay.name(summary: summary, planInfo: state.planInfo)
         let membership = summary.membershipType ?? "unknown"
-
-        var cycleLine: String?
-        if let start = summary.billingCycleStartDate, let end = summary.billingCycleEndDate {
-            cycleLine = "Cycle: \(UsageFormatting.formatCycleDate(start)) – \(UsageFormatting.formatCycleDate(end))"
-        }
 
         let aggregations = state.aggregations?.aggregations
         let weeklyAggregations = state.weeklyAggregations?.aggregations
@@ -330,7 +376,8 @@ extension UsageViewModel {
                 ),
                 subtitle: UsageFormatting.weeklyWindowLine(
                     start: state.sandUsage?.periodStartDate,
-                    reset: state.sandUsage?.resetDate
+                    reset: state.sandUsage?.resetDate,
+                    calendar: calendar
                 ),
                 percentUsed: normalizedBotPercent,
                 resetDate: state.sandUsage?.resetDate,
@@ -351,16 +398,21 @@ extension UsageViewModel {
 
         var lastUpdatedLine: String?
         if let lastUpdated = state.lastUpdated {
-            let time = UsageFormatting.formatTime(lastUpdated)
+            let time = UsageFormatting.formatTime(lastUpdated, calendar: calendar)
             lastUpdatedLine = includePollingHint
                 ? "Refreshes every \(AppInfo.summaryPollSeconds)s · Last updated: \(time)"
                 : "Fetched at: \(time)"
         }
 
         return UsageViewModel(
-            headerTitle: "Cursor Usage — \(membership)",
+            headerTitle: "Cursor Usage — \(planDisplayName)",
             membershipType: membership,
-            cycleLine: cycleLine,
+            planDisplayName: planDisplayName,
+            cycleLine: UsageFormatting.cycleLine(
+                start: summary.billingCycleStartDate,
+                end: summary.billingCycleEndDate,
+                calendar: calendar
+            ),
             billingCycleStart: summary.billingCycleStart,
             billingCycleEnd: summary.billingCycleEnd,
             totalTitle: UsageFormatting.poolSectionTitle(
@@ -381,6 +433,7 @@ extension UsageViewModel {
                 planInfo: state.planInfo,
                 hardLimit: state.hardLimit
             ),
+            billingResetDate: summary.billingCycleEndDate,
             lastUpdatedLine: lastUpdatedLine,
             fetchedAt: state.lastUpdated,
             menubar: MenubarPresentation.make(from: state),

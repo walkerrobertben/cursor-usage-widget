@@ -1,0 +1,9 @@
+{
+  "planInfo": {
+    "planName": "Pro",
+    "includedAmountCents": 2000,
+    "price": "$20",
+    "billingCycleEnd": "2026-10-01T00:00:00Z",
+    "planOwner": null
+  }
+}

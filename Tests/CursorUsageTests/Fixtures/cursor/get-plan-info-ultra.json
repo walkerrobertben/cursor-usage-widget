@@ -1,0 +1,9 @@
+{
+  "planInfo": {
+    "planName": "Ultra",
+    "includedAmountCents": 40000,
+    "price": "$200",
+    "billingCycleEnd": "2026-10-01T00:00:00Z",
+    "planOwner": null
+  }
+}

@@ -1,12 +1,14 @@
+#if canImport(AppKit)
 import AppKit
+import CursorUsageCore
 
 enum UsageMenuMetrics {
-    static let menuWidth: CGFloat = 320
-    static let insetX: CGFloat = 16
-    static let columnGap: CGFloat = 10
-    static let tokensColumnWidth: CGFloat = 80
-    static let costColumnWidth: CGFloat = 56
-    static let modelRowHeight: CGFloat = 20
+    static let menuWidth: CGFloat = MenuLayout.menuWidth
+    static let insetX: CGFloat = MenuLayout.insetX
+    static let columnGap: CGFloat = MenuLayout.columnGap
+    static let tokensColumnWidth: CGFloat = MenuLayout.tokensColumnWidth
+    static let costColumnWidth: CGFloat = MenuLayout.costColumnWidth
+    static let modelRowHeight: CGFloat = MenuLayout.modelRowHeight
 }
 
 /// Thin rounded usage bar plus captions, sized for an `NSMenuItem` custom view.
@@ -14,18 +16,18 @@ final class UsageMeterView: NSView {
     static let menuWidth: CGFloat = UsageMenuMetrics.menuWidth
 
     private enum Metrics {
-        static let insetX: CGFloat = UsageMenuMetrics.insetX
-        static let insetTop: CGFloat = 8
-        static let insetBottom: CGFloat = 8
-        static let titleHeight: CGFloat = 16
-        static let subtitleHeight: CGFloat = 14
-        static let titleToSubtitle: CGFloat = 2
-        static let titleToBar: CGFloat = 7
-        static let subtitleToBar: CGFloat = 6
-        static let barHeight: CGFloat = 5
-        static let barToCaptions: CGFloat = 5
-        static let captionHeight: CGFloat = 14
-        static let captionGap: CGFloat = 8
+        static let insetX: CGFloat = MenuLayout.insetX
+        static let insetTop: CGFloat = MenuLayout.meterInsetTop
+        static let insetBottom: CGFloat = MenuLayout.meterInsetBottom
+        static let titleHeight: CGFloat = MenuLayout.meterTitleHeight
+        static let subtitleHeight: CGFloat = MenuLayout.meterSubtitleHeight
+        static let titleToSubtitle: CGFloat = MenuLayout.meterTitleToSubtitle
+        static let titleToBar: CGFloat = MenuLayout.meterTitleToBar
+        static let subtitleToBar: CGFloat = MenuLayout.meterSubtitleToBar
+        static let barHeight: CGFloat = MenuLayout.meterBarHeight
+        static let barToCaptions: CGFloat = MenuLayout.meterBarToCaptions
+        static let captionHeight: CGFloat = MenuLayout.meterCaptionHeight
+        static let captionGap: CGFloat = MenuLayout.meterCaptionGap
     }
 
     private let content: UsageMeterContent
@@ -286,3 +288,4 @@ final class UsageBarView: NSView {
         }
     }
 }
+#endif

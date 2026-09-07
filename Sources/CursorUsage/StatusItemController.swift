@@ -1,11 +1,14 @@
+#if canImport(AppKit)
 import AppKit
+import CursorUsageCore
 
-final class StatusItemController: NSObject, NSMenuDelegate {
+/// AppKit dropdown over `MenuPresentation`.
+public final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
-    private var displayState = UsageDisplayState()
-    var onRefreshRequested: (() -> Void)?
+    private var presentation = MenuPresentation.make(from: UsageDisplayState())
+    public var onRefreshRequested: (() -> Void)?
 
-    override init() {
+    public override init() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
         statusItem.menu = NSMenu()
@@ -13,23 +16,23 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         updateStatusTitle()
     }
 
-    func apply(state: UsageDisplayState) {
-        displayState = state
+    public func apply(state: UsageDisplayState, calendar: DisplayCalendar = .current) {
+        presentation = MenuPresentation.make(from: state, calendar: calendar)
         updateStatusTitle()
         statusItem.menu?.update()
     }
 
-    func menuNeedsUpdate(_ menu: NSMenu) {
+    public func menuNeedsUpdate(_ menu: NSMenu) {
         rebuildMenu(menu)
     }
 
     private func updateStatusTitle() {
         guard let button = statusItem.button else { return }
 
-        switch MenubarPresentation.make(from: displayState) {
-        case .warning:
+        switch presentation.menubar.kind {
+        case let .warning(text):
             statusItem.isVisible = true
-            button.attributedTitle = NSAttributedString(string: "⚠ Cursor")
+            button.attributedTitle = NSAttributedString(string: text, attributes: baseAttributes())
         case .hidden:
             button.attributedTitle = NSAttributedString(string: "")
             statusItem.isVisible = false
@@ -39,157 +42,52 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
-    private func attributedTitle(from segments: [MenubarSegment]) -> NSAttributedString {
+    private func attributedTitle(from segments: [String]) -> NSAttributedString {
         let title = NSMutableAttributedString()
         for segment in segments {
             if title.length > 0 {
                 title.append(NSAttributedString(string: " · ", attributes: baseAttributes()))
             }
-            title.append(NSAttributedString(string: segment.text, attributes: baseAttributes()))
+            title.append(NSAttributedString(string: segment, attributes: baseAttributes()))
         }
         return title
     }
 
-    private func baseAttributes(color: NSColor = .labelColor) -> [NSAttributedString.Key: Any] {
+    private func baseAttributes() -> [NSAttributedString.Key: Any] {
         [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular),
-            .foregroundColor: color,
+            .foregroundColor: NSColor.labelColor,
         ]
     }
 
     private func rebuildMenu(_ menu: NSMenu) {
         menu.removeAllItems()
-
-        switch UsageScreen.make(from: displayState, includePollingHint: true) {
-        case let .unauthenticated(message):
-            addInfoItem(to: menu, title: message, style: .emphasis)
-            addCommonActions(to: menu)
-        case .loading:
-            addInfoItem(to: menu, title: "Loading…", style: .secondary)
-            addCommonActions(to: menu)
-        case let .ready(model):
-            addReadyMenuItems(model, to: menu)
-            addCommonActions(to: menu)
+        for row in presentation.rows {
+            append(row, to: menu)
         }
     }
 
-    private func addReadyMenuItems(_ model: UsageViewModel, to menu: NSMenu) {
-        addInfoItem(to: menu, title: model.headerTitle, style: .header)
-
-        if let cycleLine = model.cycleLine {
-            addInfoItem(to: menu, title: cycleLine, style: .secondary)
-        }
-
-        addInfoItem(to: menu, title: model.totalTitle, style: .body)
-        menu.addItem(.separator())
-        addPoolSection(model.cursor, to: menu)
-        menu.addItem(.separator())
-        addPoolSection(model.api, to: menu)
-
-        if let bot = model.bot {
+    private func append(_ row: MenuPresentation.Row, to menu: NSMenu) {
+        switch row {
+        case .separator:
             menu.addItem(.separator())
-            addPoolSection(bot, to: menu)
-        }
-
-        menu.addItem(.separator())
-        addBillingSection(model.billing, to: menu)
-        menu.addItem(.separator())
-
-        if let lastUpdatedLine = model.lastUpdatedLine {
-            addInfoItem(to: menu, title: lastUpdatedLine, style: .secondary)
-        }
-    }
-
-    private func addPoolSection(_ section: UsageViewModel.PoolSection, to menu: NSMenu) {
-        addUsageMeter(to: menu, content: section.meterContent)
-
-        if section.aggregationsMissing {
+        case let .text(item):
             addInfoItem(
                 to: menu,
-                title: section.missingBreakdownMessage,
-                style: .secondary,
-                indentationLevel: 1
+                title: item.text,
+                style: item.style,
+                indentationLevel: item.indentation
             )
-            return
+        case let .meter(item):
+            addUsageMeter(to: menu, content: item.content)
+        case let .model(content):
+            let menuItem = NSMenuItem()
+            menuItem.view = UsageModelRowView(content: content)
+            menuItem.isEnabled = true
+            menu.addItem(menuItem)
+        case let .action(action):
+            addAction(action, to: menu)
         }
-
-        if section.rows.isEmpty {
-            if section.showsEmptyPlaceholder {
-                addInfoItem(
-                    to: menu,
-                    title: "No usage this cycle",
-                    style: .secondary,
-                    indentationLevel: 1
-                )
-            }
-            return
-        }
-
-        addModelRows(section.rows, to: menu)
-    }
-
-    private func addModelRows(_ models: [ModelUsageRow], to menu: NSMenu) {
-        for model in models {
-            let item = NSMenuItem()
-            item.view = UsageModelRowView(
-                content: UsageModelRowContent(
-                    name: model.name,
-                    tokens: UsageFormatting.tokensColumnText(model.tokens),
-                    cost: UsageFormatting.dollarsFromCents(model.cents)
-                )
-            )
-            item.isEnabled = true
-            menu.addItem(item)
-        }
-    }
-
-    private func addBillingSection(_ billing: UsageFormatting.BillingSnapshot, to menu: NSMenu) {
-        let highlightOnDemand = billing.isOnDemandActive
-        let valueStyle: InfoItemStyle = highlightOnDemand ? .alert : .body
-
-        if let totalBillLine = billing.totalBillLine {
-            addInfoItem(to: menu, title: totalBillLine, style: .section)
-        }
-        if let totalBillDetailLine = billing.totalBillDetailLine {
-            addInfoItem(
-                to: menu,
-                title: totalBillDetailLine,
-                style: .secondary,
-                indentationLevel: 1
-            )
-        }
-
-        addInfoItem(
-            to: menu,
-            title: billing.onDemandHeaderLine,
-            style: highlightOnDemand ? .alert : .section
-        )
-
-        if billing.hasTeamBudget {
-            addInfoItem(
-                to: menu,
-                title: billing.youLine,
-                style: valueStyle,
-                indentationLevel: 1
-            )
-            if let everyoneElseLine = billing.everyoneElseLine {
-                addInfoItem(
-                    to: menu,
-                    title: everyoneElseLine,
-                    style: valueStyle,
-                    indentationLevel: 1
-                )
-            }
-        }
-    }
-
-    private enum InfoItemStyle {
-        case header
-        case section
-        case body
-        case secondary
-        case emphasis
-        case alert
     }
 
     private func addUsageMeter(to menu: NSMenu, content: UsageMeterContent) {
@@ -202,7 +100,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private func addInfoItem(
         to menu: NSMenu,
         title: String,
-        style: InfoItemStyle,
+        style: MenuPresentation.Style,
         indentationLevel: Int = 0
     ) {
         let item = NSMenuItem(title: "", action: #selector(ignoreMenuSelection), keyEquivalent: "")
@@ -216,19 +114,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(item)
     }
 
-    private func infoItemAttributes(for style: InfoItemStyle) -> [NSAttributedString.Key: Any] {
+    private func infoItemAttributes(for style: MenuPresentation.Style) -> [NSAttributedString.Key: Any] {
         switch style {
-        case .header:
+        case .header, .section:
             return [
                 .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
                 .foregroundColor: NSColor.labelColor,
             ]
-        case .section:
-            return [
-                .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
-                .foregroundColor: NSColor.labelColor,
-            ]
-        case .body:
+        case .body, .separator:
             return [
                 .font: NSFont.systemFont(ofSize: 13, weight: .regular),
                 .foregroundColor: NSColor.labelColor,
@@ -238,31 +131,28 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 .font: NSFont.systemFont(ofSize: 12, weight: .regular),
                 .foregroundColor: NSColor.secondaryLabelColor,
             ]
-        case .emphasis:
-            return [
-                .font: NSFont.systemFont(ofSize: 13, weight: .medium),
-                .foregroundColor: NSColor.systemOrange,
-            ]
-        case .alert:
-            return [
-                .font: NSFont.systemFont(ofSize: 13, weight: .medium),
-                .foregroundColor: NSColor.systemRed,
-            ]
         }
     }
 
-    private func addCommonActions(to menu: NSMenu) {
-        let refreshItem = NSMenuItem(title: "Refresh Now", action: #selector(refreshNow), keyEquivalent: "r")
-        refreshItem.target = self
-        menu.addItem(refreshItem)
-
-        let dashboardItem = NSMenuItem(title: "Open Dashboard…", action: #selector(openDashboard), keyEquivalent: "")
-        dashboardItem.target = self
-        menu.addItem(dashboardItem)
-
-        let quitItem = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
-        quitItem.target = self
-        menu.addItem(quitItem)
+    private func addAction(_ action: MenuPresentation.ActionRow, to menu: NSMenu) {
+        let selector: Selector
+        switch action.role {
+        case "refresh":
+            selector = #selector(refreshNow)
+        case "dashboard":
+            selector = #selector(openDashboard)
+        case "quit":
+            selector = #selector(quit)
+        default:
+            selector = #selector(ignoreMenuSelection)
+        }
+        let item = NSMenuItem(
+            title: action.title,
+            action: selector,
+            keyEquivalent: action.keyEquivalent ?? ""
+        )
+        item.target = self
+        menu.addItem(item)
     }
 
     @objc private func ignoreMenuSelection() {}
@@ -281,3 +171,4 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         NSApp.terminate(nil)
     }
 }
+#endif

@@ -1,0 +1,4 @@
+{
+  "name": "Cursor Usage Widget",
+  "install": "if [ -f \"$HOME/.swift/env.sh\" ]; then . \"$HOME/.swift/env.sh\"; fi; command -v swift >/dev/null"
+}

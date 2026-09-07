@@ -1,4 +1,6 @@
+#if canImport(AppKit)
 import AppKit
+import CursorUsageCore
 
 /// Three-column model / tokens / cost row, aligned with `UsageMeterView`.
 final class UsageModelRowView: NSView {
@@ -123,3 +125,4 @@ final class UsageModelRowView: NSView {
         costLabel.frame = NSRect(x: costX, y: y, width: costWidth, height: labelHeight)
     }
 }
+#endif
