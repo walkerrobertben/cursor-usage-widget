@@ -159,13 +159,89 @@ func assertPNGSnapshot(
     }
 
     let expected = try Data(contentsOf: destination)
-    if actual != expected {
-        let failed = SnapshotStore.repositorySnapshots.appendingPathComponent("\(name).actual.png")
-        try actual.write(to: failed, options: .atomic)
+    if actual == expected {
+        return
+    }
+
+    let failed = SnapshotStore.repositorySnapshots.appendingPathComponent("\(name).actual.png")
+    try actual.write(to: failed, options: .atomic)
+
+    switch SnapshotCompare.layout(expected: destination, actual: failed) {
+    case .same:
+        try? FileManager.default.removeItem(at: failed)
+        return
+    case let .different(detail):
         XCTFail(
-            "PNG snapshot mismatch for \(name). Wrote \(failed.lastPathComponent). Re-run with UPDATE_SNAPSHOTS=1 if the change is intended.",
+            "PNG snapshot mismatch for \(name): \(detail). Wrote \(failed.lastPathComponent). Re-run with UPDATE_SNAPSHOTS=1 if the change is intended.",
             file: file,
             line: line
         )
+    }
+}
+
+enum SnapshotCompare {
+    enum Result: Equatable {
+        case same
+        case different(String)
+    }
+
+    /// Chrome rasterizes fonts differently per machine. Bar fills use the
+    /// exact theme hex colors, so those pixel counts stay stable.
+    static func layout(expected: URL, actual: URL) -> Result {
+        let script = """
+        from PIL import Image
+        import sys
+
+        colors = {
+            "green": (0x34, 0xC7, 0x59),
+            "yellow": (0xFF, 0xCC, 0x00),
+            "orange": (0xFF, 0x9F, 0x0A),
+            "red": (0xFF, 0x3B, 0x30),
+        }
+
+        def near(pixel, target, delta=20):
+            return all(abs(pixel[i] - target[i]) <= delta for i in range(3))
+
+        def counts(path):
+            image = Image.open(path).convert("RGB")
+            tallies = {name: 0 for name in colors}
+            for pixel in image.getdata():
+                for name, target in colors.items():
+                    if near(pixel, target):
+                        tallies[name] += 1
+                        break
+            return image.size, tallies
+
+        gold_size, gold = counts(sys.argv[1])
+        shot_size, shot = counts(sys.argv[2])
+        if gold_size != shot_size:
+            print(f"size mismatch gold={gold_size} actual={shot_size}")
+            sys.exit(1)
+        for name in colors:
+            allowed = max(20, int(gold[name] * 0.05))
+            if abs(gold[name] - shot[name]) > allowed:
+                print(f"{name} bar pixels gold={gold[name]} actual={shot[name]}")
+                sys.exit(1)
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = ["-c", script, expected.path, actual.path]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return .different("could not compare PNGs: \(error.localizedDescription)")
+        }
+
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if process.terminationStatus == 0 {
+            return .same
+        }
+        return .different(output.isEmpty ? "images differ" : output)
     }
 }

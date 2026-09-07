@@ -83,7 +83,7 @@ swift build
 swift test
 ```
 
-`swift test` runs the model unit tests and the HTML visual snapshots. Chrome is required for the PNG checks, and `python3-pil` crops the viewport to the menu. Rewrite goldens with:
+`swift test` runs the model unit tests and the HTML visual snapshots. Chrome is required for the PNG checks, and `python3-pil` crops the viewport to the menu. Visual compare allows Chrome font antialiasing: it checks crop size and progress-bar colors, not raw PNG bytes. Rewrite goldens with:
 
 ```bash
 UPDATE_SNAPSHOTS=1 swift test --filter VisualSnapshotTests

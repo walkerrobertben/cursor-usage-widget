@@ -57,4 +57,21 @@ final class VisualSnapshotTests: XCTestCase {
     func testCursorOnlyFull() async throws {
         try assertPNGSnapshot(name: "menubar-cursor-only-full", try await ScenarioLoad.presentation(.cursorOnlyFull).0)
     }
+
+    func testLayoutCompareAcceptsIdenticalPNG() {
+        let url = SnapshotStore.repositorySnapshots.appendingPathComponent("meters-full.png")
+        XCTAssertEqual(SnapshotCompare.layout(expected: url, actual: url), .same)
+    }
+
+    func testLayoutCompareRejectsEmptyVersusFullMeters() {
+        let empty = SnapshotStore.repositorySnapshots.appendingPathComponent("meters-empty.png")
+        let full = SnapshotStore.repositorySnapshots.appendingPathComponent("meters-full.png")
+        XCTAssertNotEqual(SnapshotCompare.layout(expected: empty, actual: full), .same)
+    }
+
+    func testLayoutCompareRejectsCursorOnlyEmptyVersusFull() {
+        let empty = SnapshotStore.repositorySnapshots.appendingPathComponent("menubar-cursor-only-empty.png")
+        let full = SnapshotStore.repositorySnapshots.appendingPathComponent("menubar-cursor-only-full.png")
+        XCTAssertNotEqual(SnapshotCompare.layout(expected: empty, actual: full), .same)
+    }
 }
