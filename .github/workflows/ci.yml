@@ -5,25 +5,44 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TZ: UTC
+
 jobs:
-  linux:
-    name: Linux
+  # ubuntu-latest already ships Swift and Chrome; installing them was most of the old Linux job.
+  unit:
+    name: Unit tests
     runs-on: ubuntu-latest
-    env:
-      TZ: UTC
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: "6.1.2"
-      - uses: browser-actions/setup-chrome@v1
-      - name: Install Pillow for PNG cropping
-        run: sudo apt-get update && sudo apt-get install -y python3-pil sqlite3
-      - name: Run model and visual tests
-        run: swift test
-      - name: Upload visual snapshots
-        if: always()
+      - name: Show toolchain
+        run: swift --version
+      - name: Run unit tests
+        env:
+          SKIP_SNAPSHOT_TESTS: "1"
+        run: swift test --skip VisualSnapshotTests --parallel
+
+  snapshots:
+    name: Snapshot tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: swift --version
+      - name: Install Pillow
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends python3-pil
+      - name: Run snapshot tests
+        run: swift test --filter VisualSnapshotTests
+      - name: Upload failed snapshots
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: visual-snapshots
-          path: Tests/CursorUsageTests/Snapshots/*.png
+          path: Tests/CursorUsageTests/Snapshots/*.actual.png
+          if-no-files-found: ignore

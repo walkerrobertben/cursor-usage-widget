@@ -40,9 +40,11 @@ let package = Package(
             name: "CursorUsageTests",
             dependencies: ["CursorUsageCore", "CursorUsageHTML"],
             path: "Tests/CursorUsageTests",
+            exclude: ["__pycache__"],
             resources: [
                 .copy("Fixtures"),
                 .copy("Snapshots"),
+                .copy("snapshot_png.py"),
             ]
         ),
     ]

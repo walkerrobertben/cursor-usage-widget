@@ -2,6 +2,11 @@ import XCTest
 @testable import CursorUsageCore
 
 final class VisualSnapshotTests: XCTestCase {
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        try XCTSkipIf(SnapshotStore.skip, "SKIP_SNAPSHOT_TESTS=1")
+    }
+
     func testUnauthenticated() throws {
         try assertPNGSnapshot(
             name: "unauthenticated",
