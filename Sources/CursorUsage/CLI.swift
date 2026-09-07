@@ -80,28 +80,13 @@ enum CLI {
 
         let args = Array(arguments.dropFirst())
         var index = 0
-        var endOfOptions = false
 
         while index < args.count {
             let arg = args[index]
 
-            if endOfOptions {
-                if let error = applyPositional(
-                    arg,
-                    wantsHelp: &wantsHelp,
-                    wantsVersion: &wantsVersion,
-                    wantsCheck: &wantsCheck,
-                    wantsAuth: &wantsAuth,
-                    wantsSelfTest: &wantsSelfTest
-                ) {
-                    return .failure(error)
-                }
-                index += 1
-                continue
-            }
-
+            // SwiftPM `swift run CursorUsage -- --help` forwards the `--`
+            // separator. Ignore it so tool flags still parse.
             if arg == "--" {
-                endOfOptions = true
                 index += 1
                 continue
             }
@@ -551,6 +536,15 @@ enum CLI {
             command: .check,
             userDataDir: "/tmp/cursor-profile"
         )
+        expectSuccess(["--"], command: .gui)
+        expectSuccess(["--", "--help"], command: .help)
+        expectSuccess(["--", "--help", "--json"], command: .help, format: .json)
+        expectSuccess(["--", "--version"], command: .version)
+        expectSuccess(["--", "--check"], command: .check)
+        expectSuccess(["--", "--check", "--json"], command: .check, format: .json)
+        expectSuccess(["--", "--check", "--compact"], command: .check, compact: true)
+        expectSuccess(["--", "check", "--compact"], command: .check, compact: true)
+        expectSuccess(["--", "--json"], command: .check, format: .json)
         expectFailure(["--unknown"])
         expectFailure(["--format"])
         expectFailure(["--format", "yaml"])
@@ -768,7 +762,7 @@ struct CLIHelpDocument: Encodable {
                 "Live-only: the GUI polls every 30s/120s and may show ↑ on the menubar after usage increases. A one-shot CLI fetch has no previous sample, so percentIncreased is false and arrows are absent.",
                 "Never prints the session token. User ID is the JWT subject suffix used in the API cookie.",
                 "Unknown flags exit 2 instead of launching the menu bar extra.",
-                "When using `swift run`, put `--` before tool flags so SwiftPM does not swallow --help / --json.",
+                "When using `swift run`, put `--` before tool flags so SwiftPM does not swallow --help / --json. A leftover `--` is ignored so those flags still parse.",
             ]
         )
     }

@@ -112,7 +112,8 @@ Agents should start with:
 CursorUsage --help
 CursorUsage --help --json
 
-# swift run swallows some flags; pass them after --
+# swift run may swallow --help / --json; pass them after --
+# (a leftover -- is ignored if SwiftPM forwards it)
 swift run CursorUsage -- --help
 swift run CursorUsage -- --help --json
 ```
