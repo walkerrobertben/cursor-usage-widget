@@ -43,10 +43,15 @@ Cursor stores a session token in a local SQLite database. This app reads it read
 
 Candidate databases, in order:
 
-1. `CURSOR_STATE_DB` — env var or `.env`
-2. `CURSOR_USER_DATA_DIR` — env var or `.env`
-3. `--user-data-dir` from any running Cursor process
-4. `~/Library/Application Support/Cursor`
+1. The profile last picked in the dropdown
+2. `CURSOR_STATE_DB` — env var or `.env`
+3. `CURSOR_USER_DATA_DIR` — env var or `.env`
+4. `--user-data-dir` from any running Cursor process
+5. `~/Library/Application Support/Cursor`
+6. Other `~/Library/Application Support/Cursor*` folders that contain a session database
+7. Profiles you have switched to before
+
+If more than one signed-in account is detected, the first section shows **Current profile: \<name\>**. Hover to open a submenu and switch. That row is hidden when only one account exists. The same Cursor account in both Default and a named `--user-data-dir` shows only the named profile.
 
 `.env` search order:
 

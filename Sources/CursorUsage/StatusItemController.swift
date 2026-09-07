@@ -7,6 +7,8 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private var presentation = MenuPresentation.make(from: UsageDisplayState())
     public var onRefreshRequested: (() -> Void)?
+    public var onMenuWillOpen: (() -> Void)?
+    public var onProfileSelected: ((String) -> Void)?
 
     public override init() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -23,6 +25,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     public func menuNeedsUpdate(_ menu: NSMenu) {
+        onMenuWillOpen?()
         rebuildMenu(menu)
     }
 
@@ -32,12 +35,21 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         switch presentation.menubar.kind {
         case let .warning(text):
             statusItem.isVisible = true
+            statusItem.length = NSStatusItem.variableLength
             button.attributedTitle = NSAttributedString(string: text, attributes: baseAttributes())
         case .hidden:
             button.attributedTitle = NSAttributedString(string: "")
             statusItem.isVisible = false
+        case .loading:
+            statusItem.isVisible = true
+            statusItem.length = NSStatusItem.variableLength
+            button.attributedTitle = NSAttributedString(
+                string: MenubarPresentation.loadingChip,
+                attributes: baseAttributes()
+            )
         case let .visible(segments):
             statusItem.isVisible = true
+            statusItem.length = NSStatusItem.variableLength
             button.attributedTitle = attributedTitle(from: segments)
         }
     }
@@ -87,6 +99,8 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
             menu.addItem(menuItem)
         case let .action(action):
             addAction(action, to: menu)
+        case let .profileSwitcher(switcher):
+            addProfileSwitcher(switcher, to: menu)
         }
     }
 
@@ -155,7 +169,30 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(item)
     }
 
+    private func addProfileSwitcher(_ switcher: MenuPresentation.ProfileSwitcherRow, to menu: NSMenu) {
+        let item = NSMenuItem(title: switcher.title, action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        for option in switcher.options {
+            let optionItem = NSMenuItem(
+                title: option.title,
+                action: #selector(selectProfile(_:)),
+                keyEquivalent: ""
+            )
+            optionItem.target = self
+            optionItem.state = option.isSelected ? .on : .off
+            optionItem.representedObject = option.id
+            submenu.addItem(optionItem)
+        }
+        item.submenu = submenu
+        menu.addItem(item)
+    }
+
     @objc private func ignoreMenuSelection() {}
+
+    @objc private func selectProfile(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        onProfileSelected?(id)
+    }
 
     @objc private func refreshNow() {
         onRefreshRequested?()

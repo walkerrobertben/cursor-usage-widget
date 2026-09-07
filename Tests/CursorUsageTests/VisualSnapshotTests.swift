@@ -22,6 +22,37 @@ final class VisualSnapshotTests: XCTestCase {
         )
     }
 
+    func testLoadingWithProfiles() throws {
+        try assertPNGSnapshot(
+            name: "profiles-loading",
+            MenuPresentation.make(
+                from: UsageDisplayState(profiles: SampleProfiles.workAndPersonal()),
+                calendar: TestCalendar.snapshot
+            )
+        )
+    }
+
+    func testProfiles() async throws {
+        try assertPNGSnapshot(
+            name: "profiles",
+            try await ScenarioLoad.presentation(.ultra, profiles: SampleProfiles.three())
+        )
+    }
+
+    func testUnauthenticatedWithProfiles() throws {
+        try assertPNGSnapshot(
+            name: "profiles-unauthenticated",
+            MenuPresentation.make(
+                from: UsageDisplayState(
+                    isAuthenticated: false,
+                    authErrorMessage: MenuPresentation.authFallbackMessage,
+                    profiles: SampleProfiles.workAndPersonal()
+                ),
+                calendar: TestCalendar.snapshot
+            )
+        )
+    }
+
     func testOnDemandDisabled() async throws {
         try assertPNGSnapshot(name: "ondemand-disabled", try await ScenarioLoad.presentation(.disabled).0)
     }
@@ -73,5 +104,11 @@ final class VisualSnapshotTests: XCTestCase {
         let empty = SnapshotStore.repositorySnapshots.appendingPathComponent("menubar-cursor-only-empty.png")
         let full = SnapshotStore.repositorySnapshots.appendingPathComponent("menubar-cursor-only-full.png")
         XCTAssertNotEqual(SnapshotCompare.layout(expected: empty, actual: full), .same)
+    }
+
+    func testLayoutCompareRejectsLoadingVersusProfilesLoading() {
+        let loading = SnapshotStore.repositorySnapshots.appendingPathComponent("loading.png")
+        let profiles = SnapshotStore.repositorySnapshots.appendingPathComponent("profiles-loading.png")
+        XCTAssertNotEqual(SnapshotCompare.layout(expected: loading, actual: profiles), .same)
     }
 }

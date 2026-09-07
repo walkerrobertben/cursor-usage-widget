@@ -43,6 +43,8 @@ public enum MenuHTMLRenderer {
             return #"<div class="menubar hidden">(hidden)</div>"#
         case let .warning(text):
             return #"<div class="menubar warning">\#(escape(text))</div>"#
+        case .loading:
+            return #"<div class="menubar visible loading"><span>\#(escape(MenubarPresentation.loadingChip))</span></div>"#
         case let .visible(segments):
             let chips = segments.map { #"<span>\#(escape($0))</span>"# }.joined(separator: #"<i>·</i>"#)
             return #"<div class="menubar visible">\#(chips)</div>"#
@@ -72,6 +74,23 @@ public enum MenuHTMLRenderer {
             let key = item.keyEquivalent.map { " <kbd>\(escape($0))</kbd>" } ?? ""
             return """
             <div class="row action" data-role="\(escape(item.role))">\(escape(item.title))\(key)</div>
+            """
+        case let .profileSwitcher(item):
+            let options = item.options.map { option in
+                let mark = option.isSelected ? "✓" : ""
+                return """
+                <div class="profile-option\(option.isSelected ? " selected" : "")">
+                  <span class="check">\(escape(mark))</span>
+                  <span class="name">\(escape(option.title))</span>
+                </div>
+                """
+            }.joined(separator: "\n")
+            return """
+            <div class="row profile-switcher open" data-role="\(escape(item.role))">
+              <span class="switcher-title">\(escape(item.title))</span>
+              <span class="submenu-arrow" aria-hidden="true">›</span>
+              <div class="profile-submenu" role="menu">\(options)</div>
+            </div>
             """
         }
     }
@@ -178,12 +197,13 @@ public enum MenuHTMLRenderer {
         .menubar.hidden { color: var(--secondary); font-style: italic; }
         .menubar i { margin: 0 6px; color: var(--secondary); font-style: normal; }
         .menu {
+          position: relative;
           width: \(Int(MenuLayout.menuWidth))px;
           background: var(--menu);
           border-radius: 8px;
           box-shadow: 0 8px 28px rgba(0,0,0,0.28);
           padding: 6px 0 8px;
-          overflow: hidden;
+          overflow: visible;
         }
         .row {
           padding: 3px \(Int(MenuLayout.insetX))px;
@@ -256,6 +276,59 @@ public enum MenuHTMLRenderer {
         .model .tokens { text-align: right; color: var(--secondary); font-variant-numeric: tabular-nums; }
         .model .cost { text-align: right; font-variant-numeric: tabular-nums; }
         .action { font-size: 13px; }
+        .row.profile-switcher {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          position: relative;
+          overflow: visible;
+        }
+        .row.profile-switcher.open,
+        .row.profile-switcher:hover {
+          background: rgba(0, 0, 0, 0.06);
+        }
+        html[data-appearance="dark"] .row.profile-switcher.open,
+        html[data-appearance="dark"] .row.profile-switcher:hover {
+          background: rgba(255, 255, 255, 0.08);
+        }
+        .switcher-title {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .submenu-arrow {
+          flex: 0 0 auto;
+          color: var(--secondary);
+          font-size: 16px;
+          line-height: 1;
+          margin-right: -2px;
+        }
+        .profile-submenu {
+          position: absolute;
+          left: calc(100% - 2px);
+          top: -6px;
+          min-width: 168px;
+          margin: 0;
+          padding: 6px 0;
+          background: var(--menu);
+          border-radius: 8px;
+          box-shadow: 0 8px 28px rgba(0,0,0,0.28);
+          z-index: 3;
+        }
+        .profile-option {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 3px \(Int(MenuLayout.insetX))px;
+          color: var(--label);
+          font-size: 13px;
+          line-height: \(Int(MenuLayout.textRowHeight))px;
+        }
+        .profile-option .check {
+          width: 14px;
+          flex: 0 0 14px;
+        }
         kbd {
           float: right;
           font: 500 11px/1 ui-monospace, "SF Mono", Menlo, monospace;

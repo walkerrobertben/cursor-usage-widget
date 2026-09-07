@@ -3,10 +3,19 @@ import Foundation
 public struct CursorAuthOverrides: Sendable {
     public var stateDB: String?
     public var userDataDir: String?
+    public var additionalStateDBs: [String]
+    public var additionalUserDataDirs: [String]
 
-    public init(stateDB: String? = nil, userDataDir: String? = nil) {
+    public init(
+        stateDB: String? = nil,
+        userDataDir: String? = nil,
+        additionalStateDBs: [String] = [],
+        additionalUserDataDirs: [String] = []
+    ) {
         self.stateDB = stateDB
         self.userDataDir = userDataDir
+        self.additionalStateDBs = additionalStateDBs
+        self.additionalUserDataDirs = additionalUserDataDirs
     }
 }
 
@@ -58,27 +67,68 @@ public struct CursorAuth: Sendable {
         "WorkosCursorSessionToken=\(userId)%3A%3A\(token)"
     }
 
-    public static func resolve(overrides: CursorAuthOverrides = CursorAuthOverrides()) throws -> CursorAuth {
+    public static func resolve(
+        overrides: CursorAuthOverrides = CursorAuthOverrides(),
+        preferring preferredDatabasePath: String? = nil,
+        required: Bool = false
+    ) throws -> CursorAuth {
+        if let preferred = firstNonEmpty(preferredDatabasePath) {
+            let normalized = (preferred as NSString).standardizingPath
+            do {
+                return try auth(fromDatabasePath: normalized, source: "selected profile")
+            } catch {
+                if required {
+                    throw CursorAuthError.noDatabaseFound(searched: ["\(normalized) (selected profile)"])
+                }
+            }
+        }
+
         let candidates = CandidateDatabases.resolve(overrides: overrides)
         var searched: [String] = []
 
         for candidate in candidates {
             searched.append("\(candidate.path) (\(candidate.source))")
-            guard FileManager.default.fileExists(atPath: candidate.path) else {
-                continue
-            }
-            if let token = try? readToken(from: candidate.path), !token.isEmpty {
-                let userId = try extractUserId(from: token)
-                return CursorAuth(
-                    databasePath: candidate.path,
-                    token: token,
-                    userId: userId,
-                    source: candidate.source
-                )
+            if let auth = try? auth(fromDatabasePath: candidate.path, source: candidate.source) {
+                return auth
             }
         }
 
         throw CursorAuthError.noDatabaseFound(searched: searched)
+    }
+
+    public static func listUsableProfiles(
+        overrides: CursorAuthOverrides = CursorAuthOverrides()
+    ) -> [CursorProfile] {
+        var profiles: [CursorProfile] = []
+        var seen = Set<String>()
+
+        for candidate in CandidateDatabases.resolve(overrides: overrides) {
+            guard seen.insert(candidate.path).inserted,
+                  let auth = try? auth(fromDatabasePath: candidate.path, source: candidate.source)
+            else {
+                continue
+            }
+            profiles.append(
+                CursorProfile(
+                    databasePath: auth.databasePath,
+                    title: "",
+                    source: auth.source,
+                    userId: auth.userId
+                )
+            )
+        }
+
+        let titled = CursorProfileLabel.uniqueTitles(forDatabasePaths: profiles.map(\.databasePath))
+        for index in profiles.indices {
+            profiles[index].title = titled[index]
+        }
+
+        var unique = CursorProfile.uniqueAccounts(profiles)
+        let titles = CursorProfileLabel.uniqueTitles(forDatabasePaths: unique.map(\.databasePath))
+        for index in unique.indices {
+            unique[index].title = titles[index]
+        }
+        return unique.sorted(by: Self.isOrderedBefore)
     }
 
     static func listDatabaseCandidates(
@@ -91,6 +141,41 @@ public struct CursorAuth: Sendable {
                 exists: FileManager.default.fileExists(atPath: candidate.path)
             )
         }
+    }
+
+    private static func auth(fromDatabasePath path: String, source: String) throws -> CursorAuth {
+        guard FileManager.default.fileExists(atPath: path) else {
+            throw CursorAuthError.tokenNotFound
+        }
+        let token = try readToken(from: path)
+        guard !token.isEmpty else {
+            throw CursorAuthError.tokenNotFound
+        }
+        let userId = try extractUserId(from: token)
+        return CursorAuth(
+            databasePath: path,
+            token: token,
+            userId: userId,
+            source: source
+        )
+    }
+
+    private static func firstNonEmpty(_ value: String?) -> String? {
+        CandidateDatabases.firstNonEmpty(value)
+    }
+
+    private static func isOrderedBefore(_ lhs: CursorProfile, _ rhs: CursorProfile) -> Bool {
+        if CursorProfile.isDefaultAccountHome(lhs), !CursorProfile.isDefaultAccountHome(rhs) {
+            return true
+        }
+        if CursorProfile.isDefaultAccountHome(rhs), !CursorProfile.isDefaultAccountHome(lhs) {
+            return false
+        }
+        let order = lhs.title.localizedCaseInsensitiveCompare(rhs.title)
+        if order != .orderedSame {
+            return order == .orderedAscending
+        }
+        return lhs.databasePath < rhs.databasePath
     }
 
     private static func readToken(from path: String) throws -> String {
@@ -187,7 +272,7 @@ private struct CandidateDatabase {
 }
 
 private enum CandidateDatabases {
-    static let stateDBRelativePath = "User/globalStorage/state.vscdb"
+    static let stateDBRelativePath = CursorStateDatabase.relativePath
     static let userDataDirKey = "CURSOR_USER_DATA_DIR"
     static let stateDBKey = "CURSOR_STATE_DB"
 
@@ -239,6 +324,24 @@ private enum CandidateDatabases {
             source: "default Application Support"
         )
 
+        for dir in CursorProfileDiscovery.userDataDirs(inApplicationSupport: CursorProfileDiscovery.applicationSupportDirectory()) {
+            append(
+                path: (dir as NSString).appendingPathComponent(stateDBRelativePath),
+                source: "Application Support"
+            )
+        }
+
+        for stateDB in overrides.additionalStateDBs {
+            append(path: stateDB, source: "previously used")
+        }
+
+        for userDataDir in overrides.additionalUserDataDirs {
+            append(
+                path: (userDataDir as NSString).appendingPathComponent(stateDBRelativePath),
+                source: "previously used"
+            )
+        }
+
         return candidates
     }
 
@@ -247,7 +350,7 @@ private enum CandidateDatabases {
         return (home as NSString).appendingPathComponent("Library/Application Support/Cursor")
     }
 
-    private static func firstNonEmpty(_ values: String?...) -> String? {
+    static func firstNonEmpty(_ values: String?...) -> String? {
         for value in values {
             if let value {
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)

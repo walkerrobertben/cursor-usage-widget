@@ -270,6 +270,38 @@ enum Scenario {
     }
 }
 
+enum SampleProfiles {
+    static func workAndPersonal(selected: String = "Work") -> [CursorProfileOption] {
+        [
+            CursorProfileOption(id: "/tmp/work", title: "Work", userId: "work", isSelected: selected == "Work"),
+            CursorProfileOption(
+                id: "/tmp/personal",
+                title: "Personal",
+                userId: "personal",
+                isSelected: selected == "Personal"
+            ),
+        ]
+    }
+
+    static func three(selected: String = "Work") -> [CursorProfileOption] {
+        [
+            CursorProfileOption(
+                id: "/tmp/default",
+                title: "Default",
+                userId: "default",
+                isSelected: selected == "Default"
+            ),
+            CursorProfileOption(
+                id: "/tmp/personal",
+                title: "Personal",
+                userId: "personal",
+                isSelected: selected == "Personal"
+            ),
+            CursorProfileOption(id: "/tmp/work", title: "Work", userId: "work", isSelected: selected == "Work"),
+        ]
+    }
+}
+
 enum ScenarioLoad {
     static func state(_ scenario: Scenario) async throws -> (UsageDisplayState, MockCursorStore) {
         let store = try scenario.store()
@@ -284,5 +316,12 @@ enum ScenarioLoad {
         let (state, store) = try await self.state(scenario)
         let presentation = MenuPresentation.make(from: state, calendar: TestCalendar.snapshot)
         return (presentation, state, store)
+    }
+
+    static func presentation(_ scenario: Scenario, profiles: [CursorProfileOption]) async throws -> MenuPresentation {
+        var (presentation, state, _) = try await self.presentation(scenario)
+        state.profiles = profiles
+        presentation = MenuPresentation.make(from: state, calendar: TestCalendar.snapshot)
+        return presentation
     }
 }

@@ -14,6 +14,7 @@ public struct MenuPresentation: Equatable, Sendable {
         public enum Kind: Equatable, Sendable {
             case hidden
             case warning(text: String)
+            case loading
             case visible(segments: [String])
         }
 
@@ -35,6 +36,8 @@ public struct MenuPresentation: Equatable, Sendable {
                 return []
             case let .warning(text):
                 return [text]
+            case .loading:
+                return [MenubarPresentation.loadingChip]
             case let .visible(segments):
                 return segments
             }
@@ -46,6 +49,8 @@ public struct MenuPresentation: Equatable, Sendable {
                 return nil
             case let .warning(text):
                 return text
+            case .loading:
+                return MenubarPresentation.loadingChip
             case let .visible(segments):
                 return segments.joined(separator: " · ")
             }
@@ -72,12 +77,25 @@ public struct MenuPresentation: Equatable, Sendable {
         public var url: String?
     }
 
+    public struct ProfileRow: Equatable, Sendable {
+        public var id: String
+        public var title: String
+        public var isSelected: Bool
+    }
+
+    public struct ProfileSwitcherRow: Equatable, Sendable {
+        public var role: String
+        public var title: String
+        public var options: [ProfileRow]
+    }
+
     public enum Row: Equatable, Sendable {
         case separator
         case text(TextRow)
         case meter(MeterRow)
         case model(UsageModelRowContent)
         case action(ActionRow)
+        case profileSwitcher(ProfileSwitcherRow)
     }
 
     public var menubar: Menubar
@@ -91,6 +109,11 @@ public struct MenuPresentation: Equatable, Sendable {
     public static let quitTitle = "Quit"
     public static let refreshKey = "r"
     public static let quitKey = "q"
+    public static let profileSwitcherRole = "profileSwitcher"
+
+    public static func currentProfileTitle(_ name: String) -> String {
+        "Current profile: \(name)"
+    }
 
     public static func make(
         from state: UsageDisplayState,
@@ -107,10 +130,12 @@ public struct MenuPresentation: Equatable, Sendable {
         ) {
         case let .unauthenticated(message):
             rows.append(.text(TextRow(role: "authError", text: message, style: .body, indentation: 0)))
+            appendProfiles(&rows, state.profiles)
         case .loading:
             rows.append(.text(TextRow(role: "loading", text: loadingMessage, style: .secondary, indentation: 0)))
+            appendProfiles(&rows, state.profiles)
         case let .ready(model):
-            appendReady(&rows, model: model, calendar: calendar)
+            appendReady(&rows, model: model, profiles: state.profiles, calendar: calendar)
         }
         appendActions(&rows)
         return MenuPresentation(menubar: menubar(from: state), rows: rows)
@@ -122,17 +147,25 @@ public struct MenuPresentation: Equatable, Sendable {
             return Menubar(kind: .hidden)
         case .warning:
             return Menubar(kind: .warning(text: "⚠ Cursor"))
+        case .loading:
+            return Menubar(kind: .loading)
         case let .visible(segments):
             return Menubar(kind: .visible(segments: segments.map(\.text)))
         }
     }
 
-    private static func appendReady(_ rows: inout [Row], model: UsageViewModel, calendar: DisplayCalendar) {
+    private static func appendReady(
+        _ rows: inout [Row],
+        model: UsageViewModel,
+        profiles: [CursorProfileOption],
+        calendar: DisplayCalendar
+    ) {
         rows.append(.text(TextRow(role: "header", text: model.headerTitle, style: .header, indentation: 0)))
         if let cycleLine = model.cycleLine {
             rows.append(.text(TextRow(role: "cycle", text: cycleLine, style: .secondary, indentation: 0)))
         }
         rows.append(.text(TextRow(role: "total", text: model.totalTitle, style: .body, indentation: 0)))
+        appendProfiles(&rows, profiles)
         rows.append(.separator)
         appendPool(&rows, model.cursor, calendar: calendar)
         rows.append(.separator)
@@ -270,6 +303,26 @@ public struct MenuPresentation: Equatable, Sendable {
         }
     }
 
+    private static func appendProfiles(_ rows: inout [Row], _ profiles: [CursorProfileOption]) {
+        guard profiles.count >= 2 else { return }
+        let current = profiles.first(where: \.isSelected) ?? profiles[0]
+        rows.append(
+            .profileSwitcher(
+                ProfileSwitcherRow(
+                    role: profileSwitcherRole,
+                    title: currentProfileTitle(current.title),
+                    options: profiles.map { profile in
+                        ProfileRow(
+                            id: profile.id,
+                            title: profile.title,
+                            isSelected: profile.isSelected
+                        )
+                    }
+                )
+            )
+        )
+    }
+
     private static func appendActions(_ rows: inout [Row]) {
         rows.append(
             .action(
@@ -316,6 +369,9 @@ extension MenuPresentation {
             if case let .action(item) = row, item.role == role {
                 return item.title
             }
+            if case let .profileSwitcher(item) = row, item.role == role {
+                return item.title
+            }
         }
         return nil
     }
@@ -328,6 +384,8 @@ extension MenuPresentation {
             case let .meter(item) where item.role == role:
                 return item.content.title
             case let .action(item) where item.role == role:
+                return item.title
+            case let .profileSwitcher(item) where item.role == role:
                 return item.title
             default:
                 return nil
@@ -349,6 +407,15 @@ extension MenuPresentation {
         }
     }
 
+    public var profileSwitcher: ProfileSwitcherRow? {
+        for row in rows {
+            if case let .profileSwitcher(item) = row {
+                return item
+            }
+        }
+        return nil
+    }
+
     public var roleOrder: [String] {
         rows.compactMap { row in
             switch row {
@@ -361,6 +428,8 @@ extension MenuPresentation {
             case .model:
                 return "model"
             case let .action(item):
+                return item.role
+            case let .profileSwitcher(item):
                 return item.role
             }
         }

@@ -13,6 +13,7 @@ public struct UsageDisplayState: Equatable, Sendable {
     public var apiPercentIncreased: Bool
     public var autoPercentIncreased: Bool
     public var botPercentIncreased: Bool
+    public var profiles: [CursorProfileOption]
 
     public init(
         summary: UsageSummaryResponse? = nil,
@@ -26,7 +27,8 @@ public struct UsageDisplayState: Equatable, Sendable {
         authErrorMessage: String? = nil,
         apiPercentIncreased: Bool = false,
         autoPercentIncreased: Bool = false,
-        botPercentIncreased: Bool = false
+        botPercentIncreased: Bool = false,
+        profiles: [CursorProfileOption] = []
     ) {
         self.summary = summary
         self.aggregations = aggregations
@@ -40,6 +42,7 @@ public struct UsageDisplayState: Equatable, Sendable {
         self.apiPercentIncreased = apiPercentIncreased
         self.autoPercentIncreased = autoPercentIncreased
         self.botPercentIncreased = botPercentIncreased
+        self.profiles = profiles
     }
 }
 
@@ -103,6 +106,7 @@ public struct MenubarSegment: Equatable, Sendable {
 public enum MenubarPresentation: Equatable, Sendable {
     case hidden
     case warning
+    case loading
     case visible([MenubarSegment])
 
     public var compactLine: String? {
@@ -111,17 +115,21 @@ public enum MenubarPresentation: Equatable, Sendable {
             return nil
         case .warning:
             return "⚠ Cursor"
+        case .loading:
+            return Self.loadingChip
         case let .visible(segments):
             return segments.map(\.text).joined(separator: " · ")
         }
     }
+
+    public static let loadingChip = "Cursor: Loading..."
 
     public static func make(from state: UsageDisplayState) -> MenubarPresentation {
         if !state.isAuthenticated {
             return .warning
         }
         guard let summary = state.summary else {
-            return .hidden
+            return .loading
         }
 
         let apiPercent = summary.apiPercentUsed ?? 0
