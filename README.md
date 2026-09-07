@@ -80,6 +80,8 @@ These Cursor dashboard endpoints are unofficial and may change:
 - `POST /api/dashboard/get-sand-usage-status`
 - `POST /api/dashboard/get-plan-info`
 - `POST /api/dashboard/get-hard-limit`
+- `POST /api/dashboard/get-me`
+- `POST /api/dashboard/get-team-spend`
 
 ## Development
 

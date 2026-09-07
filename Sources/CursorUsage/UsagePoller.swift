@@ -135,6 +135,7 @@ public final class UsagePoller {
             lastState.sandUsage = nil
             lastState.planInfo = nil
             lastState.hardLimit = nil
+            lastState.teamSeat = nil
             lastState.lastUpdated = nil
             lastState.apiPercentIncreased = false
             lastState.autoPercentIncreased = false

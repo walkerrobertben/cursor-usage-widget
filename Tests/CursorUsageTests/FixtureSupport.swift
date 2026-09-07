@@ -53,6 +53,7 @@ struct RecordedRequest: Equatable, Sendable {
     var origin: String?
     var contentType: String?
     var cookie: String?
+    var body: String?
 }
 
 final class MockCursorStore: @unchecked Sendable {
@@ -94,7 +95,8 @@ final class MockCursorStore: @unchecked Sendable {
                 path: request.url?.path ?? "",
                 origin: request.value(forHTTPHeaderField: "Origin"),
                 contentType: request.value(forHTTPHeaderField: "Content-Type"),
-                cookie: request.value(forHTTPHeaderField: "Cookie")
+                cookie: request.value(forHTTPHeaderField: "Cookie"),
+                body: requestBody(request)
             )
         }
     }
@@ -102,6 +104,27 @@ final class MockCursorStore: @unchecked Sendable {
     var recordedPaths: [String] {
         recorded.map(\.path)
     }
+}
+
+private func requestBody(_ request: URLRequest) -> String? {
+    if let data = request.httpBody {
+        return String(data: data, encoding: .utf8)
+    }
+    guard let stream = request.httpBodyStream else {
+        return nil
+    }
+    stream.open()
+    defer { stream.close() }
+    var data = Data()
+    var buffer = [UInt8](repeating: 0, count: 1024)
+    while stream.hasBytesAvailable {
+        let count = stream.read(&buffer, maxLength: buffer.count)
+        if count <= 0 {
+            break
+        }
+        data.append(buffer, count: count)
+    }
+    return String(data: data, encoding: .utf8)
 }
 
 actor MockCursorHTTPGate {
@@ -179,6 +202,8 @@ enum Scenario {
     case cursorOnlyEmpty
     case cursorOnlyFull
     case ultra
+    case teamPremium
+    case teamStandard
 
     func store() throws -> MockCursorStore {
         switch self {
@@ -264,6 +289,26 @@ enum Scenario {
                 .sandUsage: (200, "get-sand-usage-none"),
                 .planInfo: (200, "get-plan-info-ultra"),
                 .hardLimit: (200, "get-hard-limit-disabled"),
+                .aggregatedUsage: (200, "get-aggregated-usage-events"),
+            ])
+        case .teamPremium:
+            return try MockCursorStore(responses: [
+                .usageSummary: (200, "usage-summary-team-enterprise"),
+                .sandUsage: (200, "get-sand-usage-status"),
+                .planInfo: (200, "get-plan-info-team"),
+                .hardLimit: (200, "get-hard-limit-limited"),
+                .me: (200, "get-me-team"),
+                .teamSpend: (200, "get-team-spend-premium"),
+                .aggregatedUsage: (200, "get-aggregated-usage-events"),
+            ])
+        case .teamStandard:
+            return try MockCursorStore(responses: [
+                .usageSummary: (200, "usage-summary-team-enterprise"),
+                .sandUsage: (200, "get-sand-usage-status"),
+                .planInfo: (200, "get-plan-info-team"),
+                .hardLimit: (200, "get-hard-limit-limited"),
+                .me: (200, "get-me-team"),
+                .teamSpend: (200, "get-team-spend-standard"),
                 .aggregatedUsage: (200, "get-aggregated-usage-events"),
             ])
         }

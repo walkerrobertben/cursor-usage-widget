@@ -6,12 +6,14 @@ public enum CursorAPIEndpoint: String, CaseIterable, Equatable, Sendable {
     case sandUsage = "/api/dashboard/get-sand-usage-status"
     case planInfo = "/api/dashboard/get-plan-info"
     case hardLimit = "/api/dashboard/get-hard-limit"
+    case me = "/api/dashboard/get-me"
+    case teamSpend = "/api/dashboard/get-team-spend"
 
     public var method: String {
         switch self {
         case .usageSummary:
             return "GET"
-        case .aggregatedUsage, .sandUsage, .planInfo, .hardLimit:
+        case .aggregatedUsage, .sandUsage, .planInfo, .hardLimit, .me, .teamSpend:
             return "POST"
         }
     }

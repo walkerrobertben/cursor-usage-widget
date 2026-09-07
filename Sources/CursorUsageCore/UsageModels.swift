@@ -83,8 +83,49 @@ public enum ModelUsageBreakdown {
     }
 }
 
+public enum TeamBillingSeat: Equatable, Sendable {
+    case standard
+    case premium
+
+    public var displayName: String {
+        switch self {
+        case .standard:
+            return "Standard"
+        case .premium:
+            return "Premium"
+        }
+    }
+
+    public var monthlyPriceCents: Int {
+        switch self {
+        case .standard:
+            return 4_000
+        case .premium:
+            return 12_000
+        }
+    }
+
+    public static func parse(_ raw: String?) -> TeamBillingSeat? {
+        let value = PlanDisplay.normalized(raw)
+        if value.contains("tier_2000") {
+            return .premium
+        }
+        if value.contains("tier_1000") {
+            return .standard
+        }
+        return nil
+    }
+}
+
 public enum PlanDisplay {
-    public static func name(summary: UsageSummaryResponse, planInfo: PlanInfoResponse?) -> String {
+    public static func name(
+        summary: UsageSummaryResponse,
+        planInfo: PlanInfoResponse?,
+        teamSeat: TeamBillingSeat? = nil
+    ) -> String {
+        if let teamSeat {
+            return teamSeat.displayName
+        }
         if let planName = planInfo?.planInfo?.planName?.trimmingCharacters(in: .whitespacesAndNewlines),
            !planName.isEmpty
         {
@@ -148,8 +189,12 @@ public enum PlanIncludedBudgets {
 
     public static func monthlyPriceCents(
         membershipType: String?,
-        planInfo: PlanInfoResponse?
+        planInfo: PlanInfoResponse?,
+        teamSeat: TeamBillingSeat? = nil
     ) -> Int? {
+        if let teamSeat {
+            return teamSeat.monthlyPriceCents
+        }
         if let parsed = parsePriceCents(planInfo?.planInfo?.price) {
             return parsed
         }

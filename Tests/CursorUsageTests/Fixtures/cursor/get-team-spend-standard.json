@@ -1,0 +1,12 @@
+{
+  "teamMemberSpend": [
+    {
+      "userId": 1001,
+      "role": "TEAM_ROLE_MEMBER",
+      "billingTier": "TEAM_MEMBER_BILLING_TIER_TIER_1000",
+      "includedSpendCents": 340
+    }
+  ],
+  "selfServeTieredPricingEnabled": true,
+  "totalMembers": 1
+}

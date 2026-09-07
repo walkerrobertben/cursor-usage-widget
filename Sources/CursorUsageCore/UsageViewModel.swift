@@ -7,6 +7,7 @@ public struct UsageDisplayState: Equatable, Sendable {
     public var sandUsage: SandUsageResponse?
     public var planInfo: PlanInfoResponse?
     public var hardLimit: HardLimitResponse?
+    public var teamSeat: TeamBillingSeat?
     public var lastUpdated: Date?
     public var isAuthenticated: Bool
     public var authErrorMessage: String?
@@ -22,6 +23,7 @@ public struct UsageDisplayState: Equatable, Sendable {
         sandUsage: SandUsageResponse? = nil,
         planInfo: PlanInfoResponse? = nil,
         hardLimit: HardLimitResponse? = nil,
+        teamSeat: TeamBillingSeat? = nil,
         lastUpdated: Date? = nil,
         isAuthenticated: Bool = true,
         authErrorMessage: String? = nil,
@@ -36,6 +38,7 @@ public struct UsageDisplayState: Equatable, Sendable {
         self.sandUsage = sandUsage
         self.planInfo = planInfo
         self.hardLimit = hardLimit
+        self.teamSeat = teamSeat
         self.lastUpdated = lastUpdated
         self.isAuthenticated = isAuthenticated
         self.authErrorMessage = authErrorMessage
@@ -298,7 +301,11 @@ extension UsageViewModel {
         includePollingHint: Bool = true,
         missingBreakdownMessage: String = "Loading breakdown…"
     ) -> UsageViewModel {
-        let planDisplayName = PlanDisplay.name(summary: summary, planInfo: state.planInfo)
+        let planDisplayName = PlanDisplay.name(
+            summary: summary,
+            planInfo: state.planInfo,
+            teamSeat: state.teamSeat
+        )
         let membership = summary.membershipType ?? "unknown"
 
         let aggregations = state.aggregations?.aggregations
@@ -439,7 +446,8 @@ extension UsageViewModel {
             billing: UsageFormatting.BillingSnapshot.make(
                 summary: summary,
                 planInfo: state.planInfo,
-                hardLimit: state.hardLimit
+                hardLimit: state.hardLimit,
+                teamSeat: state.teamSeat
             ),
             billingResetDate: summary.billingCycleEndDate,
             lastUpdatedLine: lastUpdatedLine,

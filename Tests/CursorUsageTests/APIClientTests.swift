@@ -39,6 +39,36 @@ final class APIClientTests: XCTestCase {
         XCTAssertTrue(cookie.contains(TestAuth.token))
     }
 
+    func testTeamPremiumLoadsSeatFromTeamSpend() async throws {
+        let (state, store) = try await ScenarioLoad.state(.teamPremium)
+        XCTAssertEqual(state.teamSeat, .premium)
+        XCTAssertEqual(state.planInfo?.planInfo?.price, "$40/mo")
+
+        XCTAssertEqual(
+            store.recordedPaths,
+            [
+                CursorAPIEndpoint.usageSummary.rawValue,
+                CursorAPIEndpoint.sandUsage.rawValue,
+                CursorAPIEndpoint.planInfo.rawValue,
+                CursorAPIEndpoint.hardLimit.rawValue,
+                CursorAPIEndpoint.me.rawValue,
+                CursorAPIEndpoint.teamSpend.rawValue,
+                CursorAPIEndpoint.aggregatedUsage.rawValue,
+                CursorAPIEndpoint.aggregatedUsage.rawValue,
+            ]
+        )
+
+        let spend = try XCTUnwrap(store.recorded.first { $0.path == CursorAPIEndpoint.teamSpend.rawValue })
+        XCTAssertEqual(spend.method, "POST")
+        XCTAssertTrue(spend.body?.contains("2002") == true)
+    }
+
+    func testIndividualPlanSkipsTeamSeatLookup() async throws {
+        let (_, store) = try await ScenarioLoad.state(.limited)
+        XCTAssertFalse(store.recordedPaths.contains(CursorAPIEndpoint.me.rawValue))
+        XCTAssertFalse(store.recordedPaths.contains(CursorAPIEndpoint.teamSpend.rawValue))
+    }
+
     func testUnauthorizedSummaryStopsFurtherCalls() async throws {
         let (state, store) = try await ScenarioLoad.state(.unauthorized)
         XCTAssertFalse(state.isAuthenticated)

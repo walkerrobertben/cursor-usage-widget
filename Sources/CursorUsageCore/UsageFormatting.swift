@@ -282,13 +282,15 @@ extension UsageFormatting.BillingSnapshot {
     public static func make(
         summary: UsageSummaryResponse,
         planInfo: PlanInfoResponse?,
-        hardLimit: HardLimitResponse?
+        hardLimit: HardLimitResponse?,
+        teamSeat: TeamBillingSeat? = nil
     ) -> UsageFormatting.BillingSnapshot {
         UsageFormatting.BillingSnapshot(
-            planName: PlanDisplay.name(summary: summary, planInfo: planInfo),
+            planName: PlanDisplay.name(summary: summary, planInfo: planInfo, teamSeat: teamSeat),
             planPriceCents: PlanIncludedBudgets.monthlyPriceCents(
                 membershipType: summary.membershipType,
-                planInfo: planInfo
+                planInfo: planInfo,
+                teamSeat: teamSeat
             ),
             individualUsedCents: summary.individualUsage?.onDemand?.used ?? 0,
             individualLimitCents: summary.individualUsage?.onDemand?.limit,

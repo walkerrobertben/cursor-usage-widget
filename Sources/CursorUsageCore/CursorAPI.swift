@@ -107,6 +107,28 @@ public struct PlanInfoResponse: Decodable, Equatable, Sendable {
     public let planInfo: PlanInfo?
 }
 
+public struct MeResponse: Decodable, Equatable, Sendable {
+    public let userId: Int?
+    public let teamId: Int?
+}
+
+public struct TeamSpendResponse: Decodable, Equatable, Sendable {
+    public struct MemberSpend: Decodable, Equatable, Sendable {
+        public let userId: Int?
+        public let billingTier: String?
+    }
+
+    public let teamMemberSpend: [MemberSpend]?
+    public let selfServeTieredPricingEnabled: Bool?
+
+    public func seat(forUserId userId: Int) -> TeamBillingSeat? {
+        guard let member = teamMemberSpend?.first(where: { $0.userId == userId }) else {
+            return nil
+        }
+        return TeamBillingSeat.parse(member.billingTier)
+    }
+}
+
 public struct HardLimitResponse: Decodable, Equatable, Sendable {
     public let noUsageBasedAllowed: Bool?
     public let hardLimit: Int?
@@ -204,6 +226,18 @@ public final class CursorAPI: @unchecked Sendable {
 
     public func fetchHardLimit() async throws -> HardLimitResponse {
         try await sendRequest(endpoint: .hardLimit, body: Data("{}".utf8))
+    }
+
+    public func fetchMe() async throws -> MeResponse {
+        try await sendRequest(endpoint: .me, body: Data("{}".utf8))
+    }
+
+    public func fetchTeamSpend(teamId: Int) async throws -> TeamSpendResponse {
+        let body: [String: Any] = ["teamId": teamId]
+        return try await sendRequest(
+            endpoint: .teamSpend,
+            body: try JSONSerialization.data(withJSONObject: body)
+        )
     }
 
     /// Bot's official percent is weekly; monthly cycle $ cannot be divided by it.

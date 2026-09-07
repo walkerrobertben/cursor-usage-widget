@@ -1,0 +1,9 @@
+{
+  "planInfo": {
+    "planName": "Team",
+    "includedAmountCents": 2000,
+    "price": "$40/mo",
+    "billingCycleEnd": "2026-10-01T00:00:00Z",
+    "planOwner": "team"
+  }
+}

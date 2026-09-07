@@ -76,6 +76,24 @@ final class BillingTests: XCTestCase {
         XCTAssertEqual(presentation.text(matching: "onDemand"), "On-demand: Disabled")
     }
 
+    func testTeamPremiumSeatOverridesTeamListPrice() async throws {
+        let (presentation, state, _) = try await ScenarioLoad.presentation(.teamPremium)
+        XCTAssertEqual(state.teamSeat, .premium)
+        XCTAssertEqual(presentation.text(matching: "header"), "Cursor Usage — Premium")
+        XCTAssertEqual(presentation.text(matching: "billing"), "Total bill this cycle: $121.50")
+        XCTAssertEqual(presentation.text(matching: "billingDetail"), "Premium $120.00 plan + $1.50 on-demand")
+        assertOnDemandComesBeforeTotalBill(presentation)
+        assertNoWarningTextStyles(presentation)
+    }
+
+    func testTeamStandardSeatOverridesTeamListName() async throws {
+        let (presentation, state, _) = try await ScenarioLoad.presentation(.teamStandard)
+        XCTAssertEqual(state.teamSeat, .standard)
+        XCTAssertEqual(presentation.text(matching: "header"), "Cursor Usage — Standard")
+        XCTAssertEqual(presentation.text(matching: "billing"), "Total bill this cycle: $41.50")
+        XCTAssertEqual(presentation.text(matching: "billingDetail"), "Standard $40.00 plan + $1.50 on-demand")
+    }
+
     func testEmptyMetersAreZeroAndGreen() async throws {
         let (presentation, _, _) = try await ScenarioLoad.presentation(.emptyMeters)
         let cursor = try XCTUnwrap(presentation.meters.first { $0.role == "meter-cursor" })
@@ -128,6 +146,23 @@ final class BillingTests: XCTestCase {
         XCTAssertEqual(PlanDisplay.name(fromMembership: "enterprise", isTeam: true), "Enterprise")
         XCTAssertEqual(PlanDisplay.name(fromMembership: "ultra", isTeam: false), "Ultra")
         XCTAssertEqual(PlanDisplay.name(fromMembership: "pro_plus", isTeam: false), "Pro+")
+    }
+
+    func testTeamBillingSeatParsesCursorTierEnums() {
+        XCTAssertEqual(
+            TeamBillingSeat.parse("TEAM_MEMBER_BILLING_TIER_TIER_2000"),
+            .premium
+        )
+        XCTAssertEqual(TeamBillingSeat.parse("TIER_2000"), .premium)
+        XCTAssertEqual(
+            TeamBillingSeat.parse("TEAM_MEMBER_BILLING_TIER_TIER_1000"),
+            .standard
+        )
+        XCTAssertEqual(TeamBillingSeat.parse("TIER_1000"), .standard)
+        XCTAssertNil(TeamBillingSeat.parse(nil))
+        XCTAssertNil(TeamBillingSeat.parse("TEAM_ROLE_MEMBER"))
+        XCTAssertEqual(TeamBillingSeat.premium.monthlyPriceCents, 12_000)
+        XCTAssertEqual(TeamBillingSeat.standard.monthlyPriceCents, 4_000)
     }
 
     private func assertOnDemandComesBeforeTotalBill(_ presentation: MenuPresentation) {
