@@ -8,3 +8,4 @@ CursorUsage.app
 *.actual.png
 __pycache__/
 *.pyc
+.snapshot-deps/

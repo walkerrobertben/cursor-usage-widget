@@ -7,20 +7,20 @@ The Swift model fetches usage with your local Cursor session. Two views render t
 - **AppKit** — the macOS menu-bar extra
 - **HTML** — an idempotent renderer used for visual snapshots, and a starting point for a later non-Mac shell
 
-Agent-facing usage lookup does not belong in this binary. If you want a tool an agent can call, host a small MCP or serverless API later and keep the Cursor token in that host's secrets.
-
 ## Requirements
 
 - macOS 13+
 - Cursor signed in on this Mac
-- To **build**: Xcode Command Line Tools (`xcode-select --install`)
+- To **build**: Swift 5.9+ from Xcode or Xcode Command Line Tools (`xcode-select --install`)
 - To **run a prebuilt `.app`**: no Swift toolchain needed
 
 ## Install
 
-From this directory:
+Clone the repository, then build locally:
 
 ```bash
+git clone https://github.com/walkerrobertben/cursor-usage-widget.git
+cd cursor-usage-widget
 ./scripts/build-app.sh
 open dist/CursorUsage.app
 ```
@@ -33,13 +33,17 @@ cp -R dist/CursorUsage.app /Applications/
 open -a "Cursor Usage"
 ```
 
-The app is a menu bar extra (`LSUIElement`). Quit from the dropdown, or `pkill -x CursorUsage`.
+The app appears in the menu bar, with no Dock icon. Quit from the dropdown, or `pkill -x CursorUsage`.
+
+The script builds for your Mac's architecture and ad-hoc signs the app. It does not produce a notarized download; friends should build their own copy using these steps.
 
 Optional: add it under **System Settings → General → Login Items**.
 
 ## Authentication
 
 Cursor stores a session token in a local SQLite database. This app reads it read-only via `/usr/bin/sqlite3`.
+
+No API key or manual token entry is required. The session token is sent to `https://cursor.com` to request dashboard data. The app has no analytics or separate backend; it remembers selected profile paths in local preferences.
 
 Candidate databases, in order:
 
@@ -83,24 +87,38 @@ These Cursor dashboard endpoints are unofficial and may change:
 - `POST /api/dashboard/get-me`
 - `POST /api/dashboard/get-team-spend`
 
+The model and test fixtures cover legacy monthly Cursor plans with separate Cursor, API, and Bot usage. Newer weekly subscription pools and prepaid-credit plans have not been verified. Treat the cycle bill as an estimate: team seat prices assume monthly USD list prices and do not account for annual discounts, tax, or credits. Check the Cursor dashboard for authoritative usage and billing.
+
+## Troubleshooting
+
+- **Some sections are missing:** optional dashboard requests can fail independently. Compare with **Open Dashboard**; an upstream API change may require a code update.
+
 ## Development
 
 ```bash
 swift build
-swift test
+swift test --skip VisualSnapshotTests
 ```
 
-`swift test` runs the model unit tests and the HTML visual snapshots. Chrome is required for the PNG checks, and `python3-pil` crops the viewport to the menu. Visual compare allows Chrome font antialiasing: it checks crop size and progress-bar colors, not raw PNG bytes.
+The package has no third-party Swift dependencies. Unit tests use synthetic fixtures and mock HTTP requests; they do not need your Cursor account.
+
+`swift test` also runs HTML visual snapshots. Chrome is required for PNG checks (`CHROME_PATH` can point to a custom installation). The snapshot helper uses `/usr/bin/python3`, so Pillow must be available to that interpreter. On macOS, install it into an ignored project-local directory and run:
+
+```bash
+/usr/bin/python3 -m pip install --target .snapshot-deps 'Pillow<12'
+PYTHONPATH="$PWD/.snapshot-deps${PYTHONPATH:+:$PYTHONPATH}" swift test
+```
+
+On Ubuntu, install `python3-pil` instead. Visual compare allows Chrome font antialiasing: it checks crop size and progress-bar colors, not raw PNG bytes. Missing Chrome skips the screenshot tests; missing Pillow causes failures.
 
 CI splits that into two parallel jobs: **Unit tests** (`swift test --skip VisualSnapshotTests`) and **Snapshot tests** (`swift test --filter VisualSnapshotTests`). The AppKit target is macOS-only.
 
 Rewrite goldens with:
 
 ```bash
-UPDATE_SNAPSHOTS=1 swift test --filter VisualSnapshotTests
+PYTHONPATH="$PWD/.snapshot-deps${PYTHONPATH:+:$PYTHONPATH}" UPDATE_SNAPSHOTS=1 swift test --filter VisualSnapshotTests
 ```
 
 ## Polling
 
-- Usage summary: every 30 seconds
-- Aggregated breakdown: every 120 seconds
+The app reloads summary and breakdown data every 30 seconds, with an additional refresh timer every 120 seconds. **Refresh Now** also reloads all data. Opening the menu rescans local profiles.
